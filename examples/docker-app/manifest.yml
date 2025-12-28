@@ -1,0 +1,80 @@
+description: "Update Docker application to v2.0.0"
+date: "2025-01-15"
+required_engine_version: "1.0.0"
+
+pre_checks:
+  - type: disk_space
+    path: /opt/myapp
+    required_mb: 500
+  
+  - type: docker_running
+
+actions:
+  - name: "Backup configuration"
+    type: backup
+    sources:
+      - /opt/myapp/config
+      - /opt/myapp/.env
+  
+  - name: "Stop Docker services"
+    type: docker_compose_down
+    compose_file: /opt/myapp/docker-compose.yml
+    timeout: 30
+  
+  - name: "Load new Docker image"
+    type: docker_load
+    image_tar: docker/myapp-v2.0.0.tar
+  
+  - name: "Update docker-compose.yml"
+    type: file_copy
+    source: files/docker-compose.yml
+    destination: /opt/myapp/docker-compose.yml
+  
+  - name: "Merge environment variables"
+    type: file_merge
+    source: files/.env
+    destination: /opt/myapp/.env
+    strategy: keep_existing
+  
+  - name: "Start Docker services"
+    type: docker_compose_up
+    compose_file: /opt/myapp/docker-compose.yml
+    detach: true
+  
+  - name: "Cleanup old images"
+    type: docker_prune
+    all: false
+    force: true
+
+post_checks:
+  - type: docker_health
+    container_name: myapp
+  
+  - type: http_check
+    url: http://localhost:8080/health
+    retries: 5
+    delay: 5
+    expected_status: 200
+
+rollback:
+  enabled: true
+  auto_rollback_on_failure: true
+  steps:
+    - name: "Stop services"
+      type: docker_compose_down
+      compose_file: /opt/myapp/docker-compose.yml
+    
+    - name: "Restore configuration"
+      type: restore_backup
+      backup_name: latest
+    
+    - name: "Restart services"
+      type: docker_compose_up
+      compose_file: /opt/myapp/docker-compose.yml
+
+cleanup:
+  remove_old_backups: true
+  keep_last_n: 3
+  remove_temp_files: true
+  remove_old_images: true
+

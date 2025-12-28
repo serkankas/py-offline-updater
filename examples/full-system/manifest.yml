@@ -1,0 +1,154 @@
+description: "Full system update to v3.0.0 with new engine"
+date: "2025-01-20"
+required_engine_version: "2.0.0"
+
+pre_checks:
+  - type: disk_space
+    path: /opt
+    required_mb: 2000
+  
+  - type: docker_running
+  
+  - type: file_exists
+    path: /opt/system/docker-compose.yml
+
+actions:
+  # FIRST: Install engine dependencies (critical!)
+  - name: "Install engine dependencies"
+    type: command
+    command: "pip3 install --no-index --find-links=wheels/ requests urllib3 certifi charset-normalizer pyyaml python-dotenv --break-system-packages"
+    cwd: "/tmp/updates/current_update"
+    timeout: 300
+    continue_on_error: false
+  
+  # Initial backup
+  - name: "Backup all configurations"
+    type: backup
+    sources:
+      - /opt/system/config
+      - /opt/system/data
+      - /etc/nginx/sites-available/default
+  
+  # Stop services
+  - name: "Stop nginx"
+    type: command
+    command: systemctl stop nginx
+  
+  - name: "Stop Docker services"
+    type: docker_compose_down
+    compose_file: /opt/system/docker-compose.yml
+    timeout: 60
+  
+  # Load new images
+  - name: "Load frontend image"
+    type: docker_load
+    image_tar: docker/frontend-v2.tar
+  
+  - name: "Load backend image"
+    type: docker_load
+    image_tar: docker/backend-v2.tar
+  
+  # Update configurations
+  - name: "Update nginx config"
+    type: file_copy
+    source: files/nginx/default.conf
+    destination: /etc/nginx/sites-available/default
+  
+  - name: "Update application config"
+    type: file_copy
+    source: files/configs/app.conf
+    destination: /opt/system/config/app.conf
+  
+  - name: "Merge environment variables"
+    type: file_merge
+    source: configs/.env
+    destination: /app/app/service_backend/.env
+    strategy: keep_existing
+  
+  - name: "Sync additional files"
+    type: file_sync
+    source: files/scripts
+    destination: /opt/system/scripts
+    mode: mirror
+  
+  # Start services
+  - name: "Start Docker services"
+    type: docker_compose_up
+    compose_file: /opt/system/docker-compose.yml
+    detach: true
+  
+  - name: "Start nginx"
+    type: command
+    command: systemctl start nginx
+  
+  # Run post-update script
+  - name: "Run post-update script"
+    type: command
+    command: /opt/system/scripts/post-update.sh
+    timeout: 120
+    continue_on_error: true
+  
+  # Cleanup
+  - name: "Prune old Docker images"
+    type: docker_prune
+    all: false
+    force: true
+
+post_checks:
+  - type: service_running
+    service_name: nginx
+  
+  - type: docker_health
+    container_name: frontend
+  
+  - type: docker_health
+    container_name: backend
+  
+  - type: http_check
+    url: http://localhost:80
+    retries: 10
+    delay: 5
+    expected_status: 200
+  
+  - type: http_check
+    url: http://localhost:80/api/health
+    retries: 10
+    delay: 5
+    expected_status: 200
+
+rollback:
+  enabled: true
+  auto_rollback_on_failure: true
+  steps:
+    - name: "Stop nginx"
+      type: command
+      command: systemctl stop nginx
+      continue_on_error: true
+    
+    - name: "Stop Docker services"
+      type: docker_compose_down
+      compose_file: /opt/system/docker-compose.yml
+      continue_on_error: true
+    
+    - name: "Restore all configurations"
+      type: restore_backup
+      backup_name: latest
+    
+    - name: "Start Docker services"
+      type: docker_compose_up
+      compose_file: /opt/system/docker-compose.yml
+    
+    - name: "Start nginx"
+      type: command
+      command: systemctl start nginx
+    
+    - name: "Wait for services"
+      type: command
+      command: sleep 10
+
+cleanup:
+  remove_old_backups: true
+  keep_last_n: 5
+  remove_temp_files: true
+  remove_old_images: true
+

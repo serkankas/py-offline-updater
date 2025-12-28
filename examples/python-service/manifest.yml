@@ -1,0 +1,71 @@
+description: "Update Python service to v1.5.0"
+date: "2025-01-15"
+required_engine_version: "1.0.0"
+
+pre_checks:
+  - type: disk_space
+    path: /opt/myservice
+    required_mb: 100
+  
+  - type: service_running
+    service_name: myservice
+
+actions:
+  - name: "Backup service files"
+    type: backup
+    sources:
+      - /opt/myservice/app
+      - /opt/myservice/config.ini
+  
+  - name: "Stop service"
+    type: command
+    command: systemctl stop myservice
+    timeout: 30
+  
+  - name: "Sync application files"
+    type: file_sync
+    source: files/app
+    destination: /opt/myservice/app
+    mode: overwrite_existing
+  
+  - name: "Install dependencies"
+    type: command
+    command: pip3 install -r /opt/myservice/app/requirements.txt
+    timeout: 300
+  
+  - name: "Start service"
+    type: command
+    command: systemctl start myservice
+    timeout: 30
+
+post_checks:
+  - type: service_running
+    service_name: myservice
+  
+  - type: http_check
+    url: http://localhost:5000/api/health
+    retries: 10
+    delay: 3
+    expected_status: 200
+
+rollback:
+  enabled: true
+  auto_rollback_on_failure: true
+  steps:
+    - name: "Stop service"
+      type: command
+      command: systemctl stop myservice
+    
+    - name: "Restore files"
+      type: restore_backup
+      backup_name: latest
+    
+    - name: "Start service"
+      type: command
+      command: systemctl start myservice
+
+cleanup:
+  remove_old_backups: true
+  keep_last_n: 2
+  remove_temp_files: true
+
