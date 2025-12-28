@@ -1,0 +1,29 @@
+{
+  "name": "py-offline-updater",
+  "version": "0.0.0-development",
+  "description": "Manifest-driven offline update framework for embedded Linux systems",
+  "scripts": {
+    "semantic-release": "semantic-release"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/serkankas/py-offline-updater.git"
+  },
+  "keywords": [
+    "offline",
+    "update",
+    "embedded",
+    "linux",
+    "manifest"
+  ],
+  "author": "Serkan KAŞ <serkankas98@gmail.com>",
+  "license": "MIT",
+  "devDependencies": {
+    "@semantic-release/changelog": "^6.0.3",
+    "@semantic-release/commit-analyzer": "^11.1.0",
+    "@semantic-release/git": "^10.0.1",
+    "@semantic-release/release-notes-generator": "^12.1.0",
+    "semantic-release": "^22.0.12"
+  }
+}
+
