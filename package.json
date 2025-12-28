@@ -3,11 +3,12 @@
   "version": "0.0.0-development",
   "description": "Manifest-driven offline update framework for embedded Linux systems",
   "scripts": {
-    "semantic-release": "semantic-release"
+    "semantic-release": "semantic-release",
+    "release": "semantic-release --no-ci"
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/serkankas/py-offline-updater.git"
+    "url": "git@github.com:serkankas/py-offline-updater.git"
   },
   "keywords": [
     "offline",
