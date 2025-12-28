@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>py-offline-updater</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🔄 py-offline-updater</h1>
+            <p>Offline Update Management System</p>
+        </header>
+
+        <!-- System Info -->
+        <section class="card">
+            <h2>System Information</h2>
+            <div id="system-info" class="system-info">
+                <div class="info-item">
+                    <span class="label">Hostname:</span>
+                    <span id="hostname">-</span>
+                </div>
+                <div class="info-item">
+                    <span class="label">Disk Usage:</span>
+                    <span id="disk-usage">-</span>
+                </div>
+                <div class="info-item">
+                    <span class="label">Memory:</span>
+                    <span id="memory">-</span>
+                </div>
+            </div>
+        </section>
+
+        <!-- Upload Section -->
+        <section class="card">
+            <h2>Upload Update Package</h2>
+            <div id="upload-area" class="upload-area">
+                <div class="upload-icon">📦</div>
+                <p>Drag & drop update package here</p>
+                <p class="upload-hint">or click to browse</p>
+                <input type="file" id="file-input" accept=".tar.gz,.tgz" style="display: none;">
+            </div>
+            <div id="file-info" class="file-info" style="display: none;">
+                <p><strong>Selected:</strong> <span id="filename"></span></p>
+                <p><strong>Size:</strong> <span id="filesize"></span></p>
+                <button id="upload-btn" class="btn btn-primary">Upload</button>
+                <button id="cancel-btn" class="btn btn-secondary">Cancel</button>
+            </div>
+        </section>
+
+        <!-- Update Status -->
+        <section class="card" id="update-section" style="display: none;">
+            <h2>Update Progress</h2>
+            <div id="update-status">
+                <div class="status-header">
+                    <span id="status-badge" class="badge">Pending</span>
+                    <span id="update-description"></span>
+                </div>
+                
+                <div class="progress-container">
+                    <div class="progress-bar">
+                        <div id="progress-fill" class="progress-fill"></div>
+                    </div>
+                    <div class="progress-text">
+                        <span id="progress-label">0 / 0 actions</span>
+                        <span id="progress-percent">0%</span>
+                    </div>
+                </div>
+
+                <div id="current-action" class="current-action"></div>
+
+                <div class="logs-container">
+                    <h3>Logs</h3>
+                    <div id="logs" class="logs"></div>
+                </div>
+
+                <div class="action-buttons">
+                    <button id="rollback-btn" class="btn btn-danger" style="display: none;">Rollback</button>
+                </div>
+            </div>
+        </section>
+
+        <!-- Backups -->
+        <section class="card">
+            <h2>Available Backups</h2>
+            <div id="backups-list" class="backups-list">
+                <p class="loading">Loading backups...</p>
+            </div>
+        </section>
+
+        <!-- Incomplete Update Recovery -->
+        <div id="recovery-modal" class="modal" style="display: none;">
+            <div class="modal-content">
+                <h2>⚠️ Incomplete Update Detected</h2>
+                <p>An update was interrupted. What would you like to do?</p>
+                <div class="modal-buttons">
+                    <button id="continue-btn" class="btn btn-primary">Continue Update</button>
+                    <button id="rollback-modal-btn" class="btn btn-danger">Rollback</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/js/app.js"></script>
+</body>
+</html>
+
