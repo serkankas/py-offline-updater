@@ -1,3 +1,10 @@
+## [1.0.1](https://github.com/serkankas/py-offline-updater/compare/v1.0.0...v1.0.1) (2026-01-13)
+
+
+### Bug Fixes
+
+* Naming convention according to client ([2fc7bf0](https://github.com/serkankas/py-offline-updater/commit/2fc7bf03339e28b8edceec619a2ad055c3f890f6))
+
 # 1.0.0 (2025-12-28)
 
 
