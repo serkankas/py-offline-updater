@@ -15,8 +15,6 @@ async function loadSystemInfo() {
         const response = await fetch('/api/system-info');
         const data = await response.json();
         
-        document.getElementById('hostname').textContent = data.hostname;
-        
         const diskPercent = data.disk_usage.percent.toFixed(1);
         const diskFree = formatBytes(data.disk_usage.free);
         document.getElementById('disk-usage').textContent = `${diskPercent}% used (${diskFree} free)`;
