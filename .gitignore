@@ -33,6 +33,7 @@ Thumbs.db
 
 # Project specific
 *.tar.gz
+*.tar
 *.zip
 /tmp/
 /uploads/
