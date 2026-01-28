@@ -1,3 +1,13 @@
+# [1.1.0](https://github.com/serkankas/py-offline-updater/compare/v1.0.1...v1.1.0) (2026-01-28)
+
+
+### Features
+
+* add production system update example ([1e43bd1](https://github.com/serkankas/py-offline-updater/commit/1e43bd1eec6a79ba140a861c3b75b172de662bf1))
+* add RCU3 update batch scripts ([82d206f](https://github.com/serkankas/py-offline-updater/commit/82d206f4b3b41491b19fdfda166196cfddcfb976)), closes [Hi#level](https://github.com/Hi/issues/level)
+* add simple engine test example ([669e5c7](https://github.com/serkankas/py-offline-updater/commit/669e5c78d2021f13b406c89324d4d7550826fa32))
+* adding wheel packages and changing gitignore ([b807b95](https://github.com/serkankas/py-offline-updater/commit/b807b9545aff0cdf503e4a55774f1f8e732ae201))
+
 ## [1.0.1](https://github.com/serkankas/py-offline-updater/compare/v1.0.0...v1.0.1) (2026-01-13)
 
 
