@@ -10,8 +10,8 @@ class Config:
     HOST: str = "0.0.0.0"
     PORT: int = 8123
     
-    # Base directories
-    BASE_DIR: Path = Path("/opt/updater")
+    # Base directories - Standardized path
+    BASE_DIR: Path = Path("/app/app/update")
     UPLOAD_DIR: Path = BASE_DIR / "uploads"
     TEMP_DIR: Path = BASE_DIR / "tmp"
     BACKUP_DIR: Path = BASE_DIR / "backups"
