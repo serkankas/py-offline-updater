@@ -1,0 +1,16 @@
+# RCU3 Update Tools Requirements
+# These are additional dependencies for the update batch scripts
+
+# HTTP requests for health checks
+requests>=2.25.0
+
+# Note: The following are part of Python standard library (no installation needed):
+# - threading
+# - subprocess
+# - shutil
+# - pathlib
+# - argparse
+# - logging
+# - time
+# - dataclasses (Python 3.7+)
+# - enum
