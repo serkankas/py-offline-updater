@@ -1,0 +1,180 @@
+description: "RCU Production System Update - Manual reboot recommended after completion"
+date: "2025-12-28"
+required_engine_version: "1.0.0"
+
+pre_checks:
+  - type: disk_space
+    path: /app/app
+    required_mb: 500
+  
+  - type: docker_running
+    required: true
+  
+  - type: service_running
+    service: service-backend
+
+actions:
+  # CRITICAL: Disable watchdog FIRST to prevent reboot
+  - name: "Disable hardware watchdog during update"
+    type: command
+    command: "echo 'V' > /dev/watchdog"
+    timeout: 5
+    continue_on_error: false
+  
+  - name: "Stop chromium kiosk"
+    type: command
+    command: "systemctl stop chromium-kiosk.service"
+    timeout: 30
+    continue_on_error: true
+  
+  - name: "Stop service-backend (watchdog service)"
+    type: command
+    command: "systemctl stop service-backend.service"
+    timeout: 30
+    continue_on_error: false
+  
+  - name: "Create system backup"
+    type: backup
+    sources:
+      - "/app/app/docker-files/"
+      - "/app/app/service_backend/"
+    destination: "/app/backup/backup_{{next_id}}"
+    verify_checksum: true
+  
+  - name: "Stop docker containers"
+    type: docker_compose_down
+    path: "/app/app/docker-files"
+    timeout: 60
+  
+  - name: "Load backend docker image"
+    type: docker_load
+    source: "RCU_Deploy/rcu-backend-v*.tar"
+    timeout: 300
+  
+  - name: "Load frontend docker image"
+    type: docker_load
+    source: "RCU_Deploy/rcu-frontend-v*.tar"
+    timeout: 300
+  
+  - name: "Update docker-compose.yml"
+    type: file_copy
+    source: "RCU_Deploy/docker-compose.yml"
+    destination: "/app/app/docker-files/docker-compose.yml"
+  
+  - name: "Update service backend files"
+    type: file_sync
+    source: "RCU_Service/backend/"
+    destination: "/app/app/service_backend/"
+    sync_mode: "mirror"
+    exclude:
+      - "*.pyc"
+      - "__pycache__"
+      - ".env"
+      - "*.log"
+  
+  - name: "Merge environment variables"
+    type: file_merge
+    source: "RCU_Service/.env"
+    destination: "/app/app/service_backend/.env"
+    merge_strategy: "keep_existing"
+  
+  - name: "Install Python dependencies (if requirements changed)"
+    type: command
+    command: "pip3 install -r /app/app/service_backend/requirements.txt --break-system-packages"
+    working_dir: "/app/app/service_backend"
+    timeout: 300
+    continue_on_error: true
+  
+  - name: "Remove old dimming_control directory"
+    type: command
+    command: "rm -rf /app/app/dimming_control"
+    timeout: 10
+    continue_on_error: true
+  
+  - name: "Remove old dimming-control systemd service"
+    type: command
+    command: "systemctl stop dimming-control.service 2>/dev/null; systemctl disable dimming-control.service 2>/dev/null; rm -f /etc/systemd/system/dimming-control.service; systemctl daemon-reload"
+    timeout: 30
+    continue_on_error: true
+  
+  - name: "Start docker containers"
+    type: docker_compose_up
+    path: "/app/app/docker-files"
+    detached: true
+    timeout: 120
+  
+  - name: "Start service-backend"
+    type: command
+    command: "systemctl start service-backend.service"
+    timeout: 30
+  
+  - name: "Start chromium kiosk"
+    type: command
+    command: "systemctl start chromium-kiosk.service"
+    timeout: 30
+    continue_on_error: true
+  
+  - name: "Cleanup old backend/frontend images only"
+    type: command
+    command: "docker images | grep -E 'backend|frontend' | grep -v 'latest' | awk '{print $3}' | xargs -r docker rmi -f 2>/dev/null || true"
+    timeout: 120
+    continue_on_error: true
+
+post_checks:
+  - type: docker_health
+    services:
+      - backend-api
+      - frontend
+    timeout: 90
+  
+  - type: http_check
+    url: "http://localhost:8000/health"
+    expected_status: 200
+    timeout: 30
+    retries: 10
+  
+  - type: http_check
+    url: "http://localhost:80/"
+    expected_status: 200
+    timeout: 30
+    retries: 5
+  
+  - type: service_running
+    service: service-backend
+
+rollback:
+  enabled: true
+  auto_rollback_on_failure: true
+  steps:
+    - name: "Stop services during rollback"
+      type: command
+      command: "systemctl stop service-backend.service chromium-kiosk.service"
+      continue_on_error: true
+    
+    - name: "Stop docker during rollback"
+      type: docker_compose_down
+      path: "/app/app/docker-files"
+      continue_on_error: true
+    
+    - name: "Restore from backup"
+      type: restore_backup
+      source: "/app/backup/latest"
+      verify_checksum: true
+    
+    - name: "Start docker after rollback"
+      type: docker_compose_up
+      path: "/app/app/docker-files"
+      detached: true
+      continue_on_error: true
+    
+    - name: "Start services after rollback"
+      type: command
+      command: "systemctl start service-backend.service chromium-kiosk.service"
+      continue_on_error: true
+
+cleanup:
+  remove_old_backups: true
+  keep_last_n: 1
+  remove_temp_files: true
+  remove_old_images: true
+
