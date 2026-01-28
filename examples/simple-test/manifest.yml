@@ -1,0 +1,36 @@
+description: "Simple Engine Test - file_copy, command, file_sync"
+date: "2025-01-28"
+required_engine_version: "1.0.0"
+
+pre_checks:
+  - type: disk_space
+    path: /tmp
+    required_mb: 10
+
+actions:
+  # TEST 1: file_copy - Python dosyası kopyala
+  - name: "Test 1: Copy Python script"
+    type: file_copy
+    source: "files/test_script.py"
+    destination: "/tmp/update_test/test_script.py"
+
+  # TEST 2: command - Kopyalanan scripti çalıştır
+  - name: "Test 2: Run Python script"
+    type: command
+    command: "python3 /tmp/update_test/test_script.py"
+    timeout: 30
+
+  # TEST 3: file_sync - Dizin senkronize et
+  - name: "Test 3: Sync scripts directory"
+    type: file_sync
+    source: "files/scripts"
+    destination: "/tmp/update_test/scripts"
+    mode: mirror
+
+post_checks:
+  - type: command
+    command: "cat /tmp/update_test/test_output.txt && cat /tmp/update_test/scripts/config.txt"
+    timeout: 10
+
+cleanup:
+  remove_temp_files: false
