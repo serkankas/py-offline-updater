@@ -1,0 +1,29 @@
+description: "Log Streaming Test - verifies real-time log output"
+date: "2026-01-31"
+required_engine_version: "1.0.0"
+
+actions:
+  - name: "Step 1: System info"
+    type: command
+    command: "echo '>>> Hostname:' && hostname && echo '>>> Date:' && date && sleep 2"
+    timeout: 10
+
+  - name: "Step 2: Disk check"
+    type: command
+    command: "echo '>>> Checking disk space...' && df -h / && sleep 2"
+    timeout: 10
+
+  - name: "Step 3: Memory check"
+    type: command
+    command: "echo '>>> Checking memory...' && free -h && sleep 2"
+    timeout: 10
+
+  - name: "Step 4: Network check"
+    type: command
+    command: "echo '>>> Checking network interfaces...' && ip -br addr && sleep 2"
+    timeout: 10
+
+  - name: "Step 5: Final report"
+    type: command
+    command: "echo '>>> All checks completed successfully!' && echo '>>> Timestamp:' && date '+%Y-%m-%d %H:%M:%S' && sleep 1"
+    timeout: 10
