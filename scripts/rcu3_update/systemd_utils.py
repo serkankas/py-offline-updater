@@ -283,7 +283,32 @@ def wait_for_service_active(
 
         time.sleep(poll_interval)
 
+    # Timeout - log detailed status
     logger.warning(f"Timeout waiting for service {service_name} to become active")
+
+    # Get detailed status
+    try:
+        status = get_service_status(service_name)
+        logger.error(f"Service status: state={status.state.value}, sub_state={status.sub_state}, pid={status.pid}")
+    except Exception as e:
+        logger.error(f"Failed to get service status: {e}")
+
+    # Get systemctl status output
+    try:
+        rc, stdout, stderr = run_systemctl(['status', service_name])
+        logger.error(f"Service status output:\n{stdout}")
+        if stderr:
+            logger.error(f"Service status stderr:\n{stderr}")
+    except Exception as e:
+        logger.error(f"Failed to get status output: {e}")
+
+    # Get recent logs
+    try:
+        logs = get_service_logs(service_name, lines=30)
+        logger.error(f"Recent service logs (last 30 lines):\n{logs}")
+    except Exception as e:
+        logger.error(f"Failed to get service logs: {e}")
+
     return False
 
 
@@ -387,7 +412,7 @@ def check_service_logs_for_errors(
 
 # Convenience constants for RCU3 services
 SERVICE_BACKEND = 'service-backend.service'
-UPDATE_SERVICE = 'update-service.service'
+UPDATE_SERVICE = 'py-updater.service'
 CHROMIUM_KIOSK = 'chromium-kiosk.service'
 
 
