@@ -39,6 +39,7 @@ Thumbs.db
 /uploads/
 state.json
 *.log
+rcu3_package/
 
 # Semantic release
 CHANGELOG.md
