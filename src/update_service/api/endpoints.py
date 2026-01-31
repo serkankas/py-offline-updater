@@ -242,25 +242,28 @@ async def rollback_update(job_id: str):
         raise HTTPException(status_code=500, detail=f"Rollback error: {str(e)}")
 
 
-async def run_update(job_id: str, package_path: Path):
+def run_update(job_id: str, package_path: Path):
     """Run update process (background task).
-    
+
+    Runs as a sync function so FastAPI executes it in a thread pool,
+    keeping the event loop free for SSE streaming.
+
     Args:
         job_id: Job ID
         package_path: Path to uploaded .tar.gz package
     """
     job = jobs[job_id]
     logs = job_logs[job_id]
-    
+
     # Setup logging to capture logs
     class LogCapture(logging.Handler):
         def emit(self, record):
             log_entry = self.format(record)
             logs.append(log_entry)
-    
+
     handler = LogCapture()
     handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
-    
+
     update_logger = logging.getLogger('update_engine')
     update_logger.addHandler(handler)
     

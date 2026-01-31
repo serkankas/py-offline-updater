@@ -71,49 +71,55 @@ def execute_action(action: Dict[str, Any], package_path: Path, backup_manager: B
 
 
 def action_command(action: Dict[str, Any], package_path: Path) -> bool:
-    """Execute a shell command.
-    
+    """Execute a shell command with real-time log streaming.
+
     Args:
         action: Action configuration with 'command', optional 'cwd', 'timeout'
         package_path: Path to extracted update package (used as default cwd)
-        
+
     Returns:
         True if command succeeds
-        
+
     Raises:
         ActionError: If command fails
     """
     command = action['command']
     cwd = action.get('cwd', str(package_path))  # Default to package path if not specified
     timeout = action.get('timeout', 300)
-    
+
     logger.info(f"Running command: {command}")
     if cwd:
         logger.debug(f"Working directory: {cwd}")
-    
+
     try:
-        result = subprocess.run(
+        process = subprocess.Popen(
             command,
             shell=True,
             cwd=cwd,
-            capture_output=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
             text=True,
-            timeout=timeout
+            bufsize=1,
         )
-        
-        if result.stdout:
-            logger.debug(f"Command output: {result.stdout}")
-        
-        if result.returncode != 0:
-            logger.error(f"Command failed with exit code {result.returncode}")
-            if result.stderr:
-                logger.error(f"Command stderr: {result.stderr}")
-            raise ActionError(f"Command failed with exit code {result.returncode}")
-        
+
+        # Stream output line by line
+        for line in process.stdout:
+            line = line.rstrip('\n\r')
+            if line:
+                logger.info(line)
+
+        process.wait(timeout=timeout)
+
+        if process.returncode != 0:
+            logger.error(f"Command failed with exit code {process.returncode}")
+            raise ActionError(f"Command failed with exit code {process.returncode}")
+
         logger.info("Command executed successfully")
         return True
-        
+
     except subprocess.TimeoutExpired:
+        process.kill()
+        process.wait()
         raise ActionError(f"Command timed out after {timeout}s")
 
 
