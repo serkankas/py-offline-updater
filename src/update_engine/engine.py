@@ -16,15 +16,17 @@ logger = logging.getLogger('update_engine')
 class UpdateEngine:
     """Main update engine class."""
     
-    def __init__(self, package_path: Path, base_dir: Path = None):
+    def __init__(self, package_path: Path, base_dir: Path = None, progress_callback=None):
         """Initialize update engine.
-        
+
         Args:
             package_path: Path to extracted update package
             base_dir: Base directory for engine data (default: /opt/updater)
+            progress_callback: Optional callable(dict) invoked on progress changes
         """
         self.package_path = Path(package_path)
         self.base_dir = base_dir or Path('/opt/updater')
+        self.progress_callback = progress_callback
         
         # Setup paths
         self.backup_dir = self.base_dir / 'backups'
@@ -194,46 +196,56 @@ class UpdateEngine:
         logger.info(f"All {check_type} passed")
         return True
     
+    def _notify_progress(self):
+        """Send current progress to callback if set."""
+        if self.progress_callback:
+            try:
+                self.progress_callback(self.get_progress())
+            except Exception as e:
+                logger.debug(f"Progress callback error: {e}")
+
     def _run_actions(self) -> bool:
         """Execute all actions.
-        
+
         Returns:
             True if all actions succeed
         """
         actions = self.manifest.get('actions', [])
-        
+
         if not actions:
             logger.warning("No actions defined in manifest")
             return True
-        
+
         logger.info(f"Executing {len(actions)} actions")
-        
+
         for i, action in enumerate(actions):
             action_name = action.get('name', action['type'])
-            
+
             try:
                 logger.info(f"Action {i+1}/{len(actions)}: {action_name}")
-                
-                # Mark action as started
+
+                # Mark action as started and notify
                 self.state_manager.mark_action_started(i, action_name)
-                
+                self._notify_progress()
+
                 # Execute action
                 success = execute_action(action, self.package_path, self.backup_manager)
-                
+
                 if success:
                     self.state_manager.mark_action_complete(i)
+                    self._notify_progress()
                     logger.info(f"Action completed: {action_name}")
                 else:
                     logger.error(f"Action failed: {action_name}")
                     return False
-                    
+
             except ActionError as e:
                 logger.error(f"Action failed: {action_name} - {e}")
                 return False
             except Exception as e:
                 logger.error(f"Action error: {action_name} - {e}", exc_info=True)
                 return False
-        
+
         logger.info("All actions completed successfully")
         return True
     

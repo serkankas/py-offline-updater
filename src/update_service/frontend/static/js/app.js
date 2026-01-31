@@ -5,7 +5,6 @@ let eventSource = null;
 // Initialize app
 document.addEventListener('DOMContentLoaded', () => {
     loadSystemInfo();
-    loadBackups();
     setupUploadHandlers();
 });
 
@@ -24,34 +23,6 @@ async function loadSystemInfo() {
         document.getElementById('memory').textContent = `${memPercent}% used (${memAvailable} available)`;
     } catch (error) {
         console.error('Failed to load system info:', error);
-    }
-}
-
-// Load backups list
-async function loadBackups() {
-    try {
-        const response = await fetch('/api/backups');
-        const backups = await response.json();
-        
-        const backupsList = document.getElementById('backups-list');
-        
-        if (backups.length === 0) {
-            backupsList.innerHTML = '<p class="loading">No backups available</p>';
-            return;
-        }
-        
-        backupsList.innerHTML = backups.map(backup => `
-            <div class="backup-item">
-                <div class="backup-info">
-                    <h4>${backup.name}</h4>
-                    <p>Created: ${new Date(backup.created_at).toLocaleString()}</p>
-                    <p>Sources: ${backup.sources.length} item(s)</p>
-                </div>
-            </div>
-        `).join('');
-    } catch (error) {
-        console.error('Failed to load backups:', error);
-        document.getElementById('backups-list').innerHTML = '<p class="loading">Failed to load backups</p>';
     }
 }
 
@@ -204,8 +175,7 @@ function streamUpdateProgress(jobId) {
         updateStatus(job);
         eventSource.close();
         
-        // Reload backups
-        loadBackups();
+        // Update complete
     });
     
     eventSource.onerror = (error) => {

@@ -149,6 +149,50 @@ def _schedule_service_restart(service_name: str, delay_seconds: int = 10) -> boo
         return False
 
 
+def _schedule_safe_reboot(delay_seconds: int = 10) -> bool:
+    """
+    Schedule a deferred safe reboot using systemd-run.
+
+    Runs safe_reboot.py (os.sync + sleep + systemctl reboot) after the
+    specified delay, giving the update process time to report success.
+
+    Args:
+        delay_seconds: Delay before reboot in seconds
+
+    Returns:
+        True if scheduling succeeded
+    """
+    safe_reboot_script = UPDATER_DIR / 'scripts' / 'rcu3_update' / 'safe_reboot.py'
+
+    if not safe_reboot_script.exists():
+        # Fallback: direct reboot
+        logger.warning(f"safe_reboot.py not found at {safe_reboot_script}, using direct reboot")
+        cmd = [
+            'systemd-run', '--on-active={}s'.format(delay_seconds),
+            'systemctl', 'reboot'
+        ]
+    else:
+        cmd = [
+            'systemd-run', '--on-active={}s'.format(delay_seconds),
+            'python3', str(safe_reboot_script)
+        ]
+
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True)
+
+        if result.returncode == 0:
+            logger.info(f"Scheduled safe reboot in {delay_seconds}s")
+            logger.info(f"  {result.stderr.strip()}")
+            return True
+        else:
+            logger.error(f"Failed to schedule reboot: {result.stderr}")
+            return False
+
+    except Exception as e:
+        logger.error(f"Failed to schedule reboot: {e}")
+        return False
+
+
 def ensure_backup_dirs():
     """Create backup directories if they don't exist."""
     for backup_dir in [BACKUP_DOCKER, BACKUP_SERVICE_BACKEND, BACKUP_UPDATER]:
@@ -771,6 +815,10 @@ def run_full_system_update(
         if not skip_updater:
             logger.info("Scheduling deferred restart of update service...")
             _schedule_service_restart(UPDATE_SERVICE, delay_seconds=10)
+
+        # Schedule safe reboot
+        logger.info("Scheduling safe reboot...")
+        _schedule_safe_reboot(delay_seconds=10)
 
         # SUCCESS
         logger.info("=" * 60)

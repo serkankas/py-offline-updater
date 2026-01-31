@@ -19,10 +19,9 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from update_engine.engine import UpdateEngine
 from update_engine.state import StateManager
-from update_engine.backup import BackupManager
 from ..config import config
 from .models import (
-    SystemInfo, ServiceStatus, BackupInfo, UpdateJobInfo, 
+    SystemInfo, ServiceStatus, UpdateJobInfo,
     UpdateProgress, UploadResponse, UpdateResponse, RollbackResponse,
     JobStatus
 )
@@ -58,14 +57,6 @@ async def get_system_info():
         uptime=psutil.boot_time()
     )
 
-
-@router.get("/backups", response_model=List[BackupInfo])
-async def list_backups():
-    """List available backups."""
-    backup_manager = BackupManager(config.BACKUP_DIR)
-    backups = backup_manager.list_backups()
-    
-    return [BackupInfo(**backup) for backup in backups]
 
 
 @router.post("/upload-update", response_model=UploadResponse)
@@ -265,36 +256,44 @@ def run_update(job_id: str, package_path: Path):
     handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
 
     update_logger = logging.getLogger('update_engine')
-    update_logger.addHandler(handler)
-    
+
     extract_dir = None
-    
+
     try:
         job.status = JobStatus.RUNNING
         job.started_at = datetime.now()
-        
+
         logs.append(f"Starting update: {package_path.name}")
-        
+
         # Extract package to temp directory
         extract_dir = config.TEMP_DIR / job_id
         extract_dir.mkdir(parents=True, exist_ok=True)
-        
+
         logs.append(f"Extracting package to {extract_dir}")
-        
+
         import tarfile
         with tarfile.open(package_path, 'r:gz') as tar:
             tar.extractall(extract_dir)
-        
+
         logs.append("Package extracted successfully")
-        
-        # Create engine with extracted directory
-        engine = UpdateEngine(extract_dir, config.BASE_DIR)
-        
+
+        # Create engine with progress callback
+        def on_progress(progress):
+            job.progress = progress
+
+        engine = UpdateEngine(extract_dir, config.BASE_DIR, progress_callback=on_progress)
+
+        # Add LogCapture AFTER engine init (setup_logging clears handlers)
+        update_logger.addHandler(handler)
+
         # Update job description from manifest
         job.description = engine.manifest.get('description')
-        
+
+        # Set initial progress
+        job.progress = engine.get_progress()
+
         success = engine.run()
-        
+
         if success:
             job.status = JobStatus.COMPLETED
             job.completed_at = datetime.now()
@@ -304,8 +303,8 @@ def run_update(job_id: str, package_path: Path):
             job.completed_at = datetime.now()
             job.error = "Update failed - check logs for details"
             logs.append("Update failed")
-        
-        # Update progress
+
+        # Final progress
         job.progress = engine.get_progress()
         
     except Exception as e:
