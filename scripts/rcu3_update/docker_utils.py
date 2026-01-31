@@ -86,7 +86,8 @@ def compose_down(
     compose_file: Path = DEFAULT_COMPOSE_FILE,
     timeout: int = 60,
     remove_volumes: bool = False,
-    remove_orphans: bool = True
+    remove_orphans: bool = True,
+    cwd: Optional[Path] = None
 ) -> bool:
     """
     Stop Docker Compose services.
@@ -96,6 +97,7 @@ def compose_down(
         timeout: Timeout for container stop
         remove_volumes: Remove named volumes
         remove_orphans: Remove containers for services not in compose file
+        cwd: Working directory for command
 
     Returns:
         True if successful
@@ -115,7 +117,7 @@ def compose_down(
     if remove_orphans:
         args.append('--remove-orphans')
 
-    rc, stdout, stderr = run_docker(args, timeout=timeout + 30)
+    rc, stdout, stderr = run_docker(args, timeout=timeout + 30, cwd=cwd)
 
     if rc != 0:
         logger.error(f"Docker compose down failed: {stderr}")
@@ -130,7 +132,8 @@ def compose_up(
     detach: bool = True,
     build: bool = False,
     force_recreate: bool = False,
-    timeout: int = 120
+    timeout: int = 120,
+    cwd: Optional[Path] = None
 ) -> bool:
     """
     Start Docker Compose services.
@@ -141,6 +144,7 @@ def compose_up(
         build: Build images before starting
         force_recreate: Recreate containers even if unchanged
         timeout: Timeout for operation
+        cwd: Working directory for command
 
     Returns:
         True if successful
@@ -162,7 +166,7 @@ def compose_up(
     if force_recreate:
         args.append('--force-recreate')
 
-    rc, stdout, stderr = run_docker(args, timeout=timeout)
+    rc, stdout, stderr = run_docker(args, timeout=timeout, cwd=cwd)
 
     if rc != 0:
         logger.error(f"Docker compose up failed: {stderr}")
@@ -358,7 +362,8 @@ def wait_for_containers_healthy(
     compose_file: Path = DEFAULT_COMPOSE_FILE,
     timeout: int = 120,
     poll_interval: float = 5.0,
-    ignore_services: Optional[List[str]] = None
+    ignore_services: Optional[List[str]] = None,
+    cwd: Optional[Path] = None
 ) -> Tuple[bool, Dict[str, str]]:
     """
     Wait for all containers to be healthy/running.
@@ -368,6 +373,7 @@ def wait_for_containers_healthy(
         timeout: Maximum time to wait
         poll_interval: Time between checks
         ignore_services: Services to ignore in health check
+        cwd: Working directory for command (optional, not used in this function)
 
     Returns:
         Tuple of (all_healthy, service_statuses)
