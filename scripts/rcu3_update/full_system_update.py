@@ -20,7 +20,7 @@ import logging
 import shutil
 import subprocess
 from pathlib import Path
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, Tuple
 from datetime import datetime
 
 from .watchdog_keeper import WatchdogKeeper, get_watchdog_keeper
@@ -45,7 +45,7 @@ logger = logging.getLogger(__name__)
 DOCKER_FILES_DIR = Path("/app/app/docker-files")
 SERVICE_BACKEND_DIR = Path("/app/app/service_backend")
 UPDATER_DIR = Path("/app/app/update")
-UPDATER_OLD_DIR = Path("/opt/update")  # Legacy location
+UPDATER_OLD_DIR = Path("/opt/updater")  # Legacy location
 
 BACKUP_ROOT = Path("/app/app/backups")
 BACKUP_DOCKER = BACKUP_ROOT / "docker"
@@ -190,6 +190,77 @@ def _schedule_safe_reboot(delay_seconds: int = 10) -> bool:
 
     except Exception as e:
         logger.error(f"Failed to schedule reboot: {e}")
+        return False
+
+
+ENV_FILE = Path("/etc/environment")
+
+# Environment variable keys for version tracking
+ENV_VERSION_KEYS = ("RCU_SW_VERSION", "RCU_HW_VERSION", "RCU_FW_VERSION")
+
+
+def set_environment_versions(
+    sw_version: Optional[str] = None,
+    hw_version: Optional[str] = None,
+    fw_version: Optional[str] = None,
+) -> bool:
+    """
+    Set RCU version environment variables in /etc/environment.
+
+    Only updates variables for which a non-None value is provided.
+    Existing non-RCU lines in /etc/environment are preserved.
+
+    Args:
+        sw_version: Software version (e.g. "daffb14f - 39.1")
+        hw_version: Hardware version (e.g. "1.0.0")
+        fw_version: Firmware version (e.g. "1.3.2")
+
+    Returns:
+        True if file was updated, False on error
+    """
+    versions = {
+        "RCU_SW_VERSION": sw_version,
+        "RCU_HW_VERSION": hw_version,
+        "RCU_FW_VERSION": fw_version,
+    }
+
+    # Filter out None values - only set what was provided
+    versions = {k: v for k, v in versions.items() if v is not None}
+
+    if not versions:
+        logger.info("No version values provided, skipping /etc/environment update")
+        return True
+
+    try:
+        # Read existing content
+        existing_lines: list[str] = []
+        if ENV_FILE.exists():
+            existing_lines = ENV_FILE.read_text().strip().splitlines()
+
+        # Keep lines that are NOT RCU version variables
+        kept_lines = [
+            line for line in existing_lines
+            if not any(line.startswith(f"{key}=") for key in ENV_VERSION_KEYS)
+        ]
+
+        # Append new version lines
+        for key, value in versions.items():
+            kept_lines.append(f'{key}="{value}"')
+
+        # Write back
+        ENV_FILE.write_text("\n".join(kept_lines) + "\n")
+
+        for key, value in versions.items():
+            logger.info(f"  {key}={value}")
+
+        logger.info(f"Updated {ENV_FILE} with version information")
+        return True
+
+    except PermissionError:
+        logger.error(f"Permission denied writing to {ENV_FILE} (need root)")
+        return False
+    except Exception as e:
+        logger.error(f"Failed to update {ENV_FILE}: {e}")
         return False
 
 
@@ -647,11 +718,28 @@ def update_updater(
     backup_dir = BACKUP_UPDATER / timestamp
 
     try:
+        # Step 0: Check if target directory needs to be created
+        # NOTE: We DON'T move /opt/updater because we're running FROM there!
+        # Just create /app/app/update and copy new files there
+        if not UPDATER_DIR.exists():
+            logger.info(f"Target directory doesn't exist, creating: {UPDATER_DIR}")
+            UPDATER_DIR.mkdir(parents=True, exist_ok=True)
+
+            # If old location exists, copy its config/state files (not code)
+            if UPDATER_OLD_DIR.exists():
+                logger.info("Copying state files from old location...")
+                old_state = UPDATER_OLD_DIR / "state.json"
+                if old_state.exists():
+                    shutil.copy2(old_state, UPDATER_DIR / "state.json")
+                    logger.info("  Copied: state.json")
+
         # Step 1: Backup current files
         logger.info("Step 1/2: Backing up current files...")
-        if UPDATER_DIR.exists():
+        if UPDATER_DIR.exists() and any(UPDATER_DIR.iterdir()):
             shutil.copytree(UPDATER_DIR, backup_dir)
             logger.info(f"  Backed up to: {backup_dir}")
+        else:
+            logger.info("  No existing files to backup")
 
         # Step 2: Sync new files in-place
         logger.info("Step 2/2: Syncing new files in-place...")
@@ -670,6 +758,51 @@ def update_updater(
             logger.debug(f"  Synced: {item.name}")
 
         logger.info(f"  Synced: {source_dir} → {UPDATER_DIR}")
+
+        # Step 3: Update systemd service file paths
+        logger.info("Step 3/3: Updating systemd service configuration...")
+        service_file = Path("/etc/systemd/system/py-updater.service")
+
+        if service_file.exists():
+            try:
+                content = service_file.read_text()
+                original_content = content
+
+                # Fix WorkingDirectory
+                content = content.replace(
+                    "WorkingDirectory=/opt/updater",
+                    f"WorkingDirectory={UPDATER_DIR}"
+                )
+
+                # Fix PYTHONPATH environment
+                if "PYTHONPATH=/opt/updater" in content:
+                    # Update to new path
+                    content = content.replace(
+                        "Environment=\"PYTHONPATH=/opt/updater/update-engines/current\"",
+                        f"Environment=\"PYTHONPATH={UPDATER_DIR}/update-engines/current\""
+                    )
+                    logger.info("  Updated PYTHONPATH in service file")
+
+                # Write back if changed
+                if content != original_content:
+                    service_file.write_text(content)
+                    logger.info(f"  Updated: {service_file}")
+
+                    # Reload systemd daemon
+                    result = subprocess.run(['systemctl', 'daemon-reload'],
+                                          capture_output=True, text=True, timeout=10)
+                    if result.returncode == 0:
+                        logger.info("  Systemd daemon reloaded")
+                    else:
+                        logger.warning(f"  Failed to reload systemd: {result.stderr}")
+                else:
+                    logger.info("  Service file already up to date")
+
+            except Exception as e:
+                logger.warning(f"  Failed to update service file: {e}")
+                logger.warning("  Manual update may be required after restart")
+        else:
+            logger.info("  Service file not found (may not be installed yet)")
 
         # SUCCESS
         logger.info("=" * 60)
@@ -731,7 +864,10 @@ def run_full_system_update(
     enable_watchdog: bool = True,
     skip_docker: bool = False,
     skip_service_backend: bool = False,
-    skip_updater: bool = False
+    skip_updater: bool = False,
+    sw_version: Optional[str] = None,
+    hw_version: Optional[str] = None,
+    fw_version: Optional[str] = None,
 ) -> bool:
     """
     Run full RCU3 system update.
@@ -745,6 +881,9 @@ def run_full_system_update(
         skip_docker: Skip Docker update (default: False)
         skip_service_backend: Skip Service Backend update (default: False)
         skip_updater: Skip Updater update (default: False)
+        sw_version: Software version to set in /etc/environment
+        hw_version: Hardware version to set in /etc/environment
+        fw_version: Firmware version to set in /etc/environment
 
     Returns:
         True if all updates succeeded, False otherwise
@@ -760,24 +899,23 @@ def run_full_system_update(
         logger.info("Preparing backup directories...")
         ensure_backup_dirs()
 
-        # Step 1: Relocation (if needed)
-        logger.info("Checking if relocation is needed...")
-        relocate_updater_if_needed()
+        # NOTE: Relocation is SKIPPED during update because update runs from /opt/updater/tmp
+        # If relocation is needed, it should be done as a separate operation
 
-        # Step 2: Start WatchdogKeeper
+        # Step 1: Start WatchdogKeeper
         if enable_watchdog:
             logger.info("Starting WatchdogKeeper...")
             watchdog_keeper = get_watchdog_keeper()
             watchdog_keeper.start()
             logger.info("  WatchdogKeeper started")
 
-        # Step 3: Stop Service Backend (will be updated later)
+        # Step 2: Stop Service Backend (will be updated later)
         logger.info("Stopping Service Backend...")
         if is_service_active(SERVICE_BACKEND):
             stop_service(SERVICE_BACKEND, timeout=30)
             logger.info("  Service Backend stopped")
 
-        # Step 4: Docker Update
+        # Step 3: Docker Update
         if not skip_docker:
             success = update_docker(
                 source_dir=docker_source_dir,
@@ -789,7 +927,7 @@ def run_full_system_update(
         else:
             logger.info("Skipping Docker update (--skip-docker)")
 
-        # Step 5: Service Backend Update
+        # Step 4: Service Backend Update
         if not skip_service_backend:
             success = update_service_backend(
                 source_dir=service_backend_source_dir,
@@ -800,7 +938,7 @@ def run_full_system_update(
         else:
             logger.info("Skipping Service Backend update (--skip-service-backend)")
 
-        # Step 6: Updater Update
+        # Step 5: Updater Update
         if not skip_updater:
             success = update_updater(
                 source_dir=updater_source_dir,
@@ -810,6 +948,12 @@ def run_full_system_update(
                 raise UpdateError("Updater update failed")
         else:
             logger.info("Skipping Updater update (--skip-updater)")
+
+        # Set version environment variables in /etc/environment
+        if any(v is not None for v in (sw_version, hw_version, fw_version)):
+            logger.info("Setting version environment variables...")
+            if not set_environment_versions(sw_version, hw_version, fw_version):
+                logger.warning("Failed to set version environment variables (non-fatal)")
 
         # Schedule deferred restart of update service if updater was updated
         if not skip_updater:
@@ -859,6 +1003,9 @@ def main():
     parser.add_argument("--skip-docker", action="store_true", help="Skip Docker update")
     parser.add_argument("--skip-service-backend", action="store_true", help="Skip Service Backend update")
     parser.add_argument("--skip-updater", action="store_true", help="Skip Updater update")
+    parser.add_argument("--sw-version", type=str, default=None, help="Software version to set in /etc/environment")
+    parser.add_argument("--hw-version", type=str, default=None, help="Hardware version to set in /etc/environment")
+    parser.add_argument("--fw-version", type=str, default=None, help="Firmware version to set in /etc/environment")
     parser.add_argument("-v", "--verbose", action="store_true", help="Verbose logging")
 
     args = parser.parse_args()
@@ -878,7 +1025,10 @@ def main():
         enable_watchdog=not args.no_watchdog,
         skip_docker=args.skip_docker,
         skip_service_backend=args.skip_service_backend,
-        skip_updater=args.skip_updater
+        skip_updater=args.skip_updater,
+        sw_version=args.sw_version,
+        hw_version=args.hw_version,
+        fw_version=args.fw_version,
     )
 
     sys.exit(0 if success else 1)

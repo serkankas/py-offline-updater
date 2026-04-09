@@ -40,6 +40,7 @@ Thumbs.db
 state.json
 *.log
 rcu3_package/
+rcu3_fresh_install/
 
 # Semantic release
 CHANGELOG.md

@@ -134,15 +134,20 @@ def is_service_active(service_name: str) -> bool:
 def stop_service(
     service_name: str,
     timeout: int = 30,
-    ignore_not_found: bool = True
+    ignore_not_found: bool = True,
+    force_kill: bool = True
 ) -> bool:
     """
     Stop a systemd service.
+
+    If the graceful stop times out and force_kill is True,
+    falls back to 'systemctl kill' (SIGKILL).
 
     Args:
         service_name: Service name to stop
         timeout: Timeout for stop operation
         ignore_not_found: If True, don't raise error if service doesn't exist
+        force_kill: If True, force kill on timeout instead of raising error
 
     Returns:
         True if service stopped successfully
@@ -152,17 +157,35 @@ def stop_service(
     """
     logger.info(f"Stopping service: {service_name}")
 
-    rc, stdout, stderr = run_systemctl(['stop', service_name], timeout=timeout)
+    try:
+        rc, stdout, stderr = run_systemctl(['stop', service_name], timeout=timeout)
 
-    if rc != 0:
-        # Check if service exists
-        if 'not found' in stderr.lower() or 'does not exist' in stderr.lower():
-            if ignore_not_found:
-                logger.warning(f"Service not found (ignored): {service_name}")
-                return True
-            raise SystemdError(f"Service not found: {service_name}")
+        if rc != 0:
+            # Check if service exists
+            if 'not found' in stderr.lower() or 'does not exist' in stderr.lower():
+                if ignore_not_found:
+                    logger.warning(f"Service not found (ignored): {service_name}")
+                    return True
+                raise SystemdError(f"Service not found: {service_name}")
 
-        raise SystemdError(f"Failed to stop service {service_name}: {stderr}")
+            raise SystemdError(f"Failed to stop service {service_name}: {stderr}")
+
+    except SystemdError as e:
+        if not force_kill or 'not found' in str(e).lower():
+            raise
+
+        logger.warning(f"Graceful stop timed out, force killing: {service_name}")
+        try:
+            run_systemctl(['kill', '--signal=SIGKILL', service_name], timeout=10)
+        except SystemdError:
+            pass  # Best effort
+
+        # Wait briefly for it to actually die
+        if not wait_for_service_stopped(service_name, timeout=10, poll_interval=1):
+            raise SystemdError(f"Failed to force kill service {service_name}")
+
+        logger.info(f"Service force killed: {service_name}")
+        return True
 
     logger.info(f"Service stopped: {service_name}")
     return True

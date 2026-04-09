@@ -24,6 +24,9 @@ logger = logging.getLogger(__name__)
 DOCKER_FILES_DIR = Path("/app/app/docker-files")
 DEFAULT_COMPOSE_FILE = DOCKER_FILES_DIR / "docker-compose.yml"
 
+# Docker Compose command (will be auto-detected)
+_DOCKER_COMPOSE_CMD = None  # None = not yet detected
+
 
 class ContainerState(Enum):
     """Docker container states"""
@@ -52,9 +55,72 @@ class DockerError(Exception):
     pass
 
 
+def _detect_docker_compose_command() -> str:
+    """
+    Detect which docker compose command is available.
+
+    Tries both:
+    - 'docker compose' (Docker Compose V2, built into Docker CLI)
+    - 'docker-compose' (Docker Compose V1, standalone binary)
+
+    Returns:
+        'compose' for V2 or 'docker-compose' for V1
+
+    Raises:
+        DockerError: If neither command is available
+    """
+    global _DOCKER_COMPOSE_CMD
+
+    if _DOCKER_COMPOSE_CMD is not None:
+        return _DOCKER_COMPOSE_CMD
+
+    # Try Docker Compose V2 (docker compose)
+    try:
+        result = subprocess.run(
+            ['docker', 'compose', 'version'],
+            capture_output=True,
+            text=True,
+            timeout=5
+        )
+        if result.returncode == 0:
+            version_info = result.stdout.strip()
+            logger.info(f"Detected Docker Compose V2: {version_info}")
+            _DOCKER_COMPOSE_CMD = 'compose'
+            return 'compose'
+    except (subprocess.TimeoutExpired, FileNotFoundError, Exception) as e:
+        logger.debug(f"Docker Compose V2 not available: {e}")
+
+    # Try Docker Compose V1 (docker-compose)
+    try:
+        result = subprocess.run(
+            ['docker-compose', 'version'],
+            capture_output=True,
+            text=True,
+            timeout=5
+        )
+        if result.returncode == 0:
+            version_info = result.stdout.strip()
+            logger.info(f"Detected Docker Compose V1: {version_info}")
+            _DOCKER_COMPOSE_CMD = 'docker-compose'
+            return 'docker-compose'
+    except (subprocess.TimeoutExpired, FileNotFoundError, Exception) as e:
+        logger.debug(f"Docker Compose V1 not available: {e}")
+
+    # Neither is available
+    raise DockerError(
+        "Docker Compose not found. Please install either:\n"
+        "  - Docker Compose V2 (docker compose)\n"
+        "  - Docker Compose V1 (docker-compose)"
+    )
+
+
 def run_docker(args: List[str], timeout: int = 300, cwd: Optional[Path] = None) -> Tuple[int, str, str]:
     """
-    Run docker command.
+    Run docker command with automatic docker-compose compatibility.
+
+    Auto-detects and uses the correct Docker Compose command:
+    - Docker Compose V2: 'docker compose'
+    - Docker Compose V1: 'docker-compose' (standalone)
 
     Args:
         args: Command arguments (e.g., ['compose', 'up', '-d'])
@@ -64,7 +130,19 @@ def run_docker(args: List[str], timeout: int = 300, cwd: Optional[Path] = None) 
     Returns:
         Tuple of (return_code, stdout, stderr)
     """
-    cmd = ['docker'] + args
+    # Auto-detect and convert compose commands
+    if args and args[0] == 'compose':
+        compose_cmd = _detect_docker_compose_command()
+
+        if compose_cmd == 'docker-compose':
+            # V1: Use standalone docker-compose binary
+            cmd = ['docker-compose'] + args[1:]
+        else:
+            # V2: Use docker compose subcommand
+            cmd = ['docker', 'compose'] + args[1:]
+    else:
+        # Regular docker command
+        cmd = ['docker'] + args
 
     logger.debug(f"Running: {' '.join(cmd)}")
 
