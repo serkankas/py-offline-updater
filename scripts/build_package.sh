@@ -202,18 +202,34 @@ if [ "$INCLUDE_ENGINE" = true ]; then
     
     if [ -d "$SRC_DIR/update_engine" ]; then
         cp -r "$SRC_DIR/update_engine" "$BUILD_DIR/"
-        
+
         # Create CHECKSUM file for engine
         echo "   Creating engine CHECKSUM..."
         (
             cd "$BUILD_DIR/update_engine"
             find . -type f -name "*.py" -exec md5sum {} \; | sed 's|^\./||' > CHECKSUM
         )
-        
+
         PY_COUNT=$(find "$BUILD_DIR/update_engine" -name "*.py" | wc -l)
         echo -e "   ${GREEN}✓ Engine included ($PY_COUNT Python files)${NC}"
     else
         echo -e "   ${RED}✗ Engine source not found at $SRC_DIR/update_engine${NC}"
+    fi
+
+    # Include update_service (web UI + API)
+    if [ -d "$SRC_DIR/update_service" ]; then
+        cp -r "$SRC_DIR/update_service" "$BUILD_DIR/"
+
+        SVC_COUNT=$(find "$BUILD_DIR/update_service" -type f | wc -l)
+        echo -e "   ${GREEN}✓ Update service included ($SVC_COUNT files)${NC}"
+    else
+        echo -e "   ${RED}✗ Update service source not found at $SRC_DIR/update_service${NC}"
+    fi
+
+    # Include bootstrap.py
+    if [ -f "$SRC_DIR/bootstrap.py" ]; then
+        cp "$SRC_DIR/bootstrap.py" "$BUILD_DIR/"
+        echo -e "   ${GREEN}✓ bootstrap.py included${NC}"
     fi
 fi
 

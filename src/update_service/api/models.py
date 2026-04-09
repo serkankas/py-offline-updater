@@ -67,6 +67,34 @@ class UploadResponse(BaseModel):
     message: str
 
 
+class ChunkedUploadInitResponse(BaseModel):
+    """Chunked upload init response."""
+    upload_id: str
+    filename: str
+    total_size: int
+    chunk_size: int
+    total_chunks: int
+    message: str
+
+
+class ChunkedUploadChunkResponse(BaseModel):
+    """Chunked upload chunk response."""
+    upload_id: str
+    chunk_index: int
+    received_bytes: int
+    total_bytes: int
+    percent: float
+    message: str
+
+
+class ChunkedUploadFinalizeResponse(BaseModel):
+    """Chunked upload finalize response."""
+    upload_id: str
+    filename: str
+    total_size: int
+    message: str
+
+
 class UpdateResponse(BaseModel):
     """Update start response."""
     job_id: str

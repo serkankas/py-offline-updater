@@ -40,6 +40,15 @@
             <div id="file-info" class="file-info" style="display: none;">
                 <p><strong>Selected:</strong> <span id="filename"></span></p>
                 <p><strong>Size:</strong> <span id="filesize"></span></p>
+                <div id="upload-progress" class="progress-container" style="display: none;">
+                    <div class="progress-bar">
+                        <div id="upload-progress-fill" class="progress-fill"></div>
+                    </div>
+                    <div class="progress-text">
+                        <span id="upload-progress-label">0 / 0 MB</span>
+                        <span id="upload-progress-percent">0%</span>
+                    </div>
+                </div>
                 <button id="upload-btn" class="btn btn-primary">Upload</button>
                 <button id="cancel-btn" class="btn btn-secondary">Cancel</button>
             </div>

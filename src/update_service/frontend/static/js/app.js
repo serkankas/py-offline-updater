@@ -93,38 +93,91 @@ function hideFileInfo() {
     document.getElementById('file-info').style.display = 'none';
 }
 
-// Upload file
+// Upload file using chunked upload
 async function uploadFile(file) {
     const uploadBtn = document.getElementById('upload-btn');
+    const cancelBtn = document.getElementById('cancel-btn');
+    const progressContainer = document.getElementById('upload-progress');
+    const progressFill = document.getElementById('upload-progress-fill');
+    const progressLabel = document.getElementById('upload-progress-label');
+    const progressPercent = document.getElementById('upload-progress-percent');
+
     uploadBtn.disabled = true;
+    cancelBtn.disabled = true;
     uploadBtn.textContent = 'Uploading...';
-    
+    progressContainer.style.display = 'block';
+
     try {
-        const formData = new FormData();
-        formData.append('file', file);
-        
-        const response = await fetch('/api/upload-update', {
-            method: 'POST',
-            body: formData
+        // Step 1: Init chunked upload
+        const initParams = new URLSearchParams({
+            filename: file.name,
+            total_size: file.size
         });
-        
-        if (!response.ok) {
-            throw new Error('Upload failed');
+        const initResp = await fetch('/api/upload/init?' + initParams, { method: 'POST' });
+        if (!initResp.ok) {
+            const err = await initResp.json();
+            throw new Error(err.detail || 'Init failed');
         }
-        
-        const data = await response.json();
-        console.log('Upload successful:', data);
-        
+        const initData = await initResp.json();
+        const { upload_id, chunk_size, total_chunks } = initData;
+
+        // Step 2: Send chunks
+        for (let i = 0; i < total_chunks; i++) {
+            const start = i * chunk_size;
+            const end = Math.min(start + chunk_size, file.size);
+            const chunk = file.slice(start, end);
+
+            const formData = new FormData();
+            formData.append('file', chunk);
+
+            const chunkParams = new URLSearchParams({
+                upload_id: upload_id,
+                chunk_index: i
+            });
+            const chunkResp = await fetch('/api/upload/chunk?' + chunkParams, {
+                method: 'POST',
+                body: formData
+            });
+
+            if (!chunkResp.ok) {
+                const err = await chunkResp.json();
+                throw new Error(err.detail || `Chunk ${i} failed`);
+            }
+
+            const chunkData = await chunkResp.json();
+
+            // Update progress
+            const sentMB = (chunkData.received_bytes / 1024 / 1024).toFixed(1);
+            const totalMB = (chunkData.total_bytes / 1024 / 1024).toFixed(1);
+            progressFill.style.width = chunkData.percent + '%';
+            progressLabel.textContent = `${sentMB} / ${totalMB} MB`;
+            progressPercent.textContent = chunkData.percent + '%';
+        }
+
+        // Step 3: Finalize
+        const finalParams = new URLSearchParams({ upload_id: upload_id });
+        const finalResp = await fetch('/api/upload/finalize?' + finalParams, { method: 'POST' });
+        if (!finalResp.ok) {
+            const err = await finalResp.json();
+            throw new Error(err.detail || 'Finalize failed');
+        }
+
+        const finalData = await finalResp.json();
+        console.log('Upload successful:', finalData);
+
         // Start update
-        await startUpdate(data.filename);
-        
+        await startUpdate(finalData.filename);
+
         hideFileInfo();
     } catch (error) {
         console.error('Upload error:', error);
         alert('Upload failed: ' + error.message);
     } finally {
         uploadBtn.disabled = false;
+        cancelBtn.disabled = false;
         uploadBtn.textContent = 'Upload';
+        progressContainer.style.display = 'none';
+        progressFill.style.width = '0%';
     }
 }
 

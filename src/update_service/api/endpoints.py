@@ -23,8 +23,10 @@ from ..config import config
 from .models import (
     SystemInfo, ServiceStatus, UpdateJobInfo,
     UpdateProgress, UploadResponse, UpdateResponse, RollbackResponse,
-    JobStatus
+    JobStatus, ChunkedUploadInitResponse, ChunkedUploadChunkResponse,
+    ChunkedUploadFinalizeResponse
 )
+import math
 
 
 router = APIRouter(prefix="/api")
@@ -33,6 +35,9 @@ logger = logging.getLogger('update_service')
 # In-memory job storage (in production, use a database)
 jobs: Dict[str, UpdateJobInfo] = {}
 job_logs: Dict[str, List[str]] = {}
+
+# In-memory chunked upload tracking
+chunked_uploads: Dict[str, dict] = {}
 
 
 @router.get("/system-info", response_model=SystemInfo)
@@ -96,6 +101,135 @@ async def upload_update(file: UploadFile = File(...)):
     except Exception as e:
         logger.error(f"Upload failed: {e}")
         raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
+
+
+@router.post("/upload/init", response_model=ChunkedUploadInitResponse)
+async def chunked_upload_init(filename: str, total_size: int):
+    """Initialize a chunked upload session."""
+    if not any(filename.endswith(ext) for ext in config.ALLOWED_EXTENSIONS):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid file type. Allowed: {config.ALLOWED_EXTENSIONS}"
+        )
+
+    if total_size > config.MAX_UPLOAD_SIZE:
+        raise HTTPException(
+            status_code=400,
+            detail=f"File too large. Max size: {config.MAX_UPLOAD_SIZE} bytes"
+        )
+
+    upload_id = str(uuid.uuid4())
+    total_chunks = math.ceil(total_size / config.CHUNK_SIZE)
+    upload_path = config.UPLOAD_DIR / filename
+
+    chunked_uploads[upload_id] = {
+        "filename": filename,
+        "total_size": total_size,
+        "total_chunks": total_chunks,
+        "received_chunks": 0,
+        "received_bytes": 0,
+        "upload_path": upload_path,
+    }
+
+    # Create empty file (truncate if exists)
+    with open(upload_path, "wb") as f:
+        pass
+
+    logger.info(f"Chunked upload init: {filename} ({total_size} bytes, {total_chunks} chunks)")
+
+    return ChunkedUploadInitResponse(
+        upload_id=upload_id,
+        filename=filename,
+        total_size=total_size,
+        chunk_size=config.CHUNK_SIZE,
+        total_chunks=total_chunks,
+        message="Upload session initialized"
+    )
+
+
+@router.post("/upload/chunk", response_model=ChunkedUploadChunkResponse)
+async def chunked_upload_chunk(
+    upload_id: str,
+    chunk_index: int,
+    file: UploadFile = File(...)
+):
+    """Receive a single chunk and append to file."""
+    if upload_id not in chunked_uploads:
+        raise HTTPException(status_code=404, detail="Upload session not found")
+
+    session = chunked_uploads[upload_id]
+
+    if chunk_index != session["received_chunks"]:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Expected chunk {session['received_chunks']}, got {chunk_index}"
+        )
+
+    try:
+        chunk_data = await file.read()
+        chunk_len = len(chunk_data)
+
+        with open(session["upload_path"], "ab") as f:
+            f.write(chunk_data)
+
+        session["received_chunks"] += 1
+        session["received_bytes"] += chunk_len
+
+        percent = round(session["received_bytes"] / session["total_size"] * 100, 1)
+
+        return ChunkedUploadChunkResponse(
+            upload_id=upload_id,
+            chunk_index=chunk_index,
+            received_bytes=session["received_bytes"],
+            total_bytes=session["total_size"],
+            percent=percent,
+            message=f"Chunk {chunk_index + 1}/{session['total_chunks']} received"
+        )
+
+    except Exception as e:
+        logger.error(f"Chunk upload error: {e}")
+        raise HTTPException(status_code=500, detail=f"Chunk upload failed: {str(e)}")
+
+
+@router.post("/upload/finalize", response_model=ChunkedUploadFinalizeResponse)
+async def chunked_upload_finalize(upload_id: str):
+    """Finalize chunked upload - verify completeness."""
+    if upload_id not in chunked_uploads:
+        raise HTTPException(status_code=404, detail="Upload session not found")
+
+    session = chunked_uploads[upload_id]
+
+    if session["received_chunks"] != session["total_chunks"]:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Missing chunks: received {session['received_chunks']}/{session['total_chunks']}"
+        )
+
+    # Verify file size on disk
+    actual_size = session["upload_path"].stat().st_size
+    if actual_size != session["total_size"]:
+        # Cleanup bad file
+        session["upload_path"].unlink(missing_ok=True)
+        del chunked_uploads[upload_id]
+        raise HTTPException(
+            status_code=400,
+            detail=f"Size mismatch: expected {session['total_size']}, got {actual_size}"
+        )
+
+    filename = session["filename"]
+    total_size = session["total_size"]
+
+    # Cleanup session
+    del chunked_uploads[upload_id]
+
+    logger.info(f"Chunked upload complete: {filename} ({total_size} bytes)")
+
+    return ChunkedUploadFinalizeResponse(
+        upload_id=upload_id,
+        filename=filename,
+        total_size=total_size,
+        message="Upload completed successfully"
+    )
 
 
 @router.post("/apply-update", response_model=UpdateResponse)

@@ -23,6 +23,7 @@ class Config:
     
     # File upload settings
     MAX_UPLOAD_SIZE: int = 2 * 1024 * 1024 * 1024  # 2GB
+    CHUNK_SIZE: int = 1 * 1024 * 1024  # 1MB
     ALLOWED_EXTENSIONS: set = {".tar.gz", ".tgz"}
     
     # Job settings
