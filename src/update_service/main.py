@@ -26,7 +26,7 @@ config.ensure_directories()
 app = FastAPI(
     title="py-offline-updater Service",
     description="Web service for managing offline updates",
-    version="1.4.0"
+    version="1.4.1"
 )
 
 # CORS middleware
@@ -57,7 +57,7 @@ if frontend_dir.exists():
         index_file = frontend_dir / "index.html"
         if index_file.exists():
             return FileResponse(index_file)
-        return {"message": "py-offline-updater Service", "version": "1.4.0"}
+        return {"message": "py-offline-updater Service", "version": "1.4.1"}
 
 
 @app.on_event("startup")

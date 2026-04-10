@@ -1,3 +1,10 @@
+## [1.4.1](https://github.com/serkankas/py-offline-updater/compare/v1.4.0...v1.4.1) (2026-04-10)
+
+
+### Bug Fixes
+
+* **ui:** reconnect to active job on page refresh during update ([c5700f1](https://github.com/serkankas/py-offline-updater/commit/c5700f17e72e228eabda4d699a6ddeff373c2211))
+
 # [1.4.0](https://github.com/serkankas/py-offline-updater/compare/v1.3.0...v1.4.0) (2026-04-10)
 
 
