@@ -28,7 +28,8 @@ from .systemd_utils import (
     stop_service, start_service, restart_service,
     is_service_active, wait_for_service_active,
     get_service_status, run_systemctl, get_service_logs,
-    SERVICE_BACKEND, UPDATE_SERVICE
+    reload_daemon,
+    SERVICE_BACKEND, UPDATE_SERVICE, CHROMIUM_KIOSK
 )
 from .docker_utils import (
     compose_down, compose_up, docker_load, docker_save,
@@ -46,6 +47,8 @@ DOCKER_FILES_DIR = Path("/app/app/docker-files")
 SERVICE_BACKEND_DIR = Path("/app/app/service_backend")
 UPDATER_DIR = Path("/app/app/update")
 UPDATER_OLD_DIR = Path("/opt/updater")  # Legacy location
+SPLASH_HTML_DEST = Path("/app/app/splash.html")
+CHROMIUM_SERVICE_PATH = Path("/etc/systemd/system/chromium-kiosk.service")
 
 BACKUP_ROOT = Path("/app/app/backups")
 BACKUP_DOCKER = BACKUP_ROOT / "docker"
@@ -70,6 +73,52 @@ UPDATER_URL = "http://localhost:8123/api/system-info"
 def get_timestamp() -> str:
     """Get current timestamp for backup naming."""
     return datetime.now().strftime("%Y%m%d_%H%M%S")
+
+
+def _patch_chromium_service():
+    """
+    Patch existing chromium-kiosk.service in-place:
+    - URL → file:///app/app/splash.html
+    - After=docker.service → After=service-backend.service
+    - Wants=docker.service → Wants=service-backend.service
+    - Remove ExecStartPre lines (splash handles waiting)
+    """
+    if not CHROMIUM_SERVICE_PATH.exists():
+        logger.warning(f"chromium-kiosk.service not found at {CHROMIUM_SERVICE_PATH}, skipping patch")
+        return
+
+    content = CHROMIUM_SERVICE_PATH.read_text()
+    original = content
+
+    # URL değiştir (http://localhost → file:///app/app/splash.html)
+    import re
+    content = re.sub(
+        r'(--kiosk.*\n\s*.*--incognito.*\n\s*.*--ozone-platform=wayland.*\n\s*.*--remote-debugging-port=\d+.*\n\s*.*--remote-debugging-address=[\d.]+.*\n\s*)http://\S+',
+        r'\1file:///app/app/splash.html',
+        content
+    )
+
+    # Eğer regex çalışmadıysa basit replace dene
+    if 'file:///app/app/splash.html' not in content:
+        content = content.replace('http://localhost', 'file:///app/app/splash.html')
+
+    # Dependency değiştir
+    content = content.replace('After=docker.service', 'After=service-backend.service')
+    content = content.replace('Wants=docker.service', 'Wants=service-backend.service')
+
+    # ExecStartPre satırlarını kaldır (splash beklemeyi hallediyor)
+    lines = content.split('\n')
+    lines = [l for l in lines if not l.strip().startswith('ExecStartPre=')]
+    # TimeoutStartSec de gereksiz artık
+    lines = [l for l in lines if not l.strip().startswith('TimeoutStartSec=')]
+    content = '\n'.join(lines)
+
+    if content != original:
+        CHROMIUM_SERVICE_PATH.write_text(content)
+        reload_daemon()
+        logger.info("  Patched chromium-kiosk.service (splash URL + removed Docker waits)")
+    else:
+        logger.info("  chromium-kiosk.service already up to date")
 
 
 def http_health_check(url: str, timeout: int = 10, max_wait: int = 60, retry_interval: int = 3) -> bool:
@@ -518,7 +567,8 @@ def update_docker(
 
 def update_service_backend(
     source_dir: Path,
-    watchdog_keeper: Optional[WatchdogKeeper] = None
+    watchdog_keeper: Optional[WatchdogKeeper] = None,
+    env_file: Optional[Path] = None,
 ) -> bool:
     """
     Update Service Backend (RCU_Service).
@@ -527,14 +577,16 @@ def update_service_backend(
     1. Stop service (should already be stopped)
     2. Backup current files
     3. Sync new files
-    4. Start service
-    5. Health check
-    6. On success: cleanup backup
-    7. On failure: rollback to backup
+    4. Deploy .env file (if provided)
+    5. Start service
+    6. Health check
+    7. On success: cleanup backup
+    8. On failure: rollback to backup
 
     Args:
         source_dir: Directory containing new service backend files
         watchdog_keeper: Optional WatchdogKeeper instance
+        env_file: Optional .env file to deploy to service backend root
 
     Returns:
         True if update succeeded, False otherwise
@@ -574,6 +626,14 @@ def update_service_backend(
         logger.info(f"  Target contents: {[f.name for f in backend_dir.iterdir()]}")
         logger.info(f"  Root contents: {[f.name for f in SERVICE_BACKEND_DIR.iterdir()]}")
         logger.info(f"  Synced: {source_dir} → {backend_dir}")
+
+        # Step 3b: Deploy .env file (replaces existing)
+        if env_file and env_file.exists():
+            dest_env = SERVICE_BACKEND_DIR / ".env"
+            shutil.copy2(env_file, dest_env)
+            logger.info(f"  Deployed .env: {env_file} → {dest_env}")
+        elif env_file:
+            logger.warning(f"  .env file not found: {env_file}")
 
         # Step 4: Start service
         logger.info("Step 4/5: Starting service...")
@@ -868,6 +928,8 @@ def run_full_system_update(
     sw_version: Optional[str] = None,
     hw_version: Optional[str] = None,
     fw_version: Optional[str] = None,
+    service_env_file: Optional[Path] = None,
+    splash_html_file: Optional[Path] = None,
 ) -> bool:
     """
     Run full RCU3 system update.
@@ -884,6 +946,7 @@ def run_full_system_update(
         sw_version: Software version to set in /etc/environment
         hw_version: Hardware version to set in /etc/environment
         fw_version: Firmware version to set in /etc/environment
+        splash_html_file: Optional splash.html to deploy to /app/app/
 
     Returns:
         True if all updates succeeded, False otherwise
@@ -927,11 +990,21 @@ def run_full_system_update(
         else:
             logger.info("Skipping Docker update (--skip-docker)")
 
+        # Step 3b: Deploy splash screen & patch chromium service
+        if splash_html_file and splash_html_file.exists():
+            logger.info("Deploying splash.html...")
+            shutil.copy2(splash_html_file, SPLASH_HTML_DEST)
+            logger.info(f"  Deployed: {splash_html_file} → {SPLASH_HTML_DEST}")
+
+            # Patch chromium-kiosk.service to use splash.html
+            _patch_chromium_service()
+
         # Step 4: Service Backend Update
         if not skip_service_backend:
             success = update_service_backend(
                 source_dir=service_backend_source_dir,
-                watchdog_keeper=watchdog_keeper
+                watchdog_keeper=watchdog_keeper,
+                env_file=service_env_file,
             )
             if not success:
                 raise UpdateError("Service Backend update failed")
@@ -949,16 +1022,21 @@ def run_full_system_update(
         else:
             logger.info("Skipping Updater update (--skip-updater)")
 
-        # Set version environment variables in /etc/environment
-        if any(v is not None for v in (sw_version, hw_version, fw_version)):
-            logger.info("Setting version environment variables...")
-            if not set_environment_versions(sw_version, hw_version, fw_version):
-                logger.warning("Failed to set version environment variables (non-fatal)")
-
         # Schedule deferred restart of update service if updater was updated
         if not skip_updater:
             logger.info("Scheduling deferred restart of update service...")
             _schedule_service_restart(UPDATE_SERVICE, delay_seconds=10)
+
+        # Ensure docker.service is enabled (not just socket-activated)
+        logger.info("Ensuring docker.service is enabled at boot...")
+        result = subprocess.run(
+            ['systemctl', 'enable', 'docker.service'],
+            capture_output=True, text=True, timeout=10
+        )
+        if result.returncode == 0:
+            logger.info("  ✓ docker.service enabled")
+        else:
+            logger.warning(f"  Failed to enable docker.service: {result.stderr}")
 
         # Schedule safe reboot
         logger.info("Scheduling safe reboot...")
@@ -1005,7 +1083,9 @@ def main():
     parser.add_argument("--skip-updater", action="store_true", help="Skip Updater update")
     parser.add_argument("--sw-version", type=str, default=None, help="Software version to set in /etc/environment")
     parser.add_argument("--hw-version", type=str, default=None, help="Hardware version to set in /etc/environment")
-    parser.add_argument("--fw-version", type=str, default=None, help="Firmware version to set in /etc/environment")
+    parser.add_argument("--fw-version", type=str, default=None, help="Firmware version (legacy, unused)")
+    parser.add_argument("--service-env-file", type=Path, default=None, help="Path to .env file for RCU_Service")
+    parser.add_argument("--splash-html", type=Path, default=None, help="Path to splash.html for chromium startup")
     parser.add_argument("-v", "--verbose", action="store_true", help="Verbose logging")
 
     args = parser.parse_args()
@@ -1029,6 +1109,8 @@ def main():
         sw_version=args.sw_version,
         hw_version=args.hw_version,
         fw_version=args.fw_version,
+        service_env_file=args.service_env_file,
+        splash_html_file=args.splash_html,
     )
 
     sys.exit(0 if success else 1)
