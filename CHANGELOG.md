@@ -1,3 +1,10 @@
+# [1.3.0](https://github.com/serkankas/py-offline-updater/compare/v1.2.0...v1.3.0) (2026-04-10)
+
+
+### Features
+
+* **rcu3:** enable docker.service at boot during update ([0085bfe](https://github.com/serkankas/py-offline-updater/commit/0085bfef3505474ab2cbd59dfb45ace77ab2aa82))
+
 # [1.2.0](https://github.com/serkankas/py-offline-updater/compare/v1.1.0...v1.2.0) (2026-04-09)
 
 
