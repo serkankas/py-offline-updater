@@ -6,6 +6,7 @@ let eventSource = null;
 document.addEventListener('DOMContentLoaded', () => {
     loadSystemInfo();
     setupUploadHandlers();
+    checkRecoveryStatus();
 });
 
 // Load system information
@@ -317,6 +318,61 @@ async function rollbackUpdate(jobId) {
     } catch (error) {
         console.error('Rollback error:', error);
         alert('Rollback failed: ' + error.message);
+    }
+}
+
+// Check for incomplete update after restart
+async function checkRecoveryStatus() {
+    try {
+        const response = await fetch('/api/recovery-status');
+        const data = await response.json();
+
+        if (!data.has_incomplete_update) return;
+
+        // Show recovery info in update section
+        const section = document.getElementById('update-section');
+        section.style.display = 'block';
+
+        const statusBadge = document.getElementById('status-badge');
+        const desc = document.getElementById('update-description');
+        const action = document.getElementById('current-action');
+        const logs = document.getElementById('logs');
+
+        if (data.status === 'in_progress') {
+            statusBadge.textContent = 'interrupted';
+            statusBadge.className = 'badge failed';
+            desc.textContent = data.description || 'Update was interrupted';
+            action.textContent = data.current_action_name
+                ? `Interrupted during: ${data.current_action_name}`
+                : 'Interrupted during update';
+        } else if (data.status === 'failed') {
+            statusBadge.textContent = 'failed';
+            statusBadge.className = 'badge failed';
+            desc.textContent = data.description || 'Update failed';
+            action.textContent = data.current_action_name
+                ? `Failed at: ${data.current_action_name}`
+                : 'Update failed';
+        }
+
+        const info = `Previous update was ${data.status === 'in_progress' ? 'interrupted (device restarted during update)' : 'failed'}. `
+            + `${data.completed_actions} action(s) completed. `
+            + `Last activity: ${data.last_updated || 'unknown'}`;
+
+        const logEntry = document.createElement('div');
+        logEntry.className = 'log-entry warning';
+        logEntry.textContent = info;
+        logs.appendChild(logEntry);
+
+        // Set progress bar
+        if (data.completed_actions > 0) {
+            document.getElementById('progress-fill').style.width = '50%';
+            document.getElementById('progress-label').textContent =
+                `${data.completed_actions} action(s) completed before interruption`;
+            document.getElementById('progress-percent').textContent = '—';
+        }
+    } catch (error) {
+        // Silent fail - recovery check is optional
+        console.debug('Recovery check:', error);
     }
 }
 

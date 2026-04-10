@@ -232,6 +232,29 @@ async def chunked_upload_finalize(upload_id: str):
     )
 
 
+@router.get("/recovery-status")
+async def get_recovery_status():
+    """Check if there's an incomplete update from a previous session (e.g. after restart)."""
+    state_manager = StateManager(config.STATE_FILE)
+    state = state_manager.load()
+
+    if not state:
+        return {"has_incomplete_update": False}
+
+    status = state.get("status")
+    if status not in ("in_progress", "failed"):
+        return {"has_incomplete_update": False}
+
+    return {
+        "has_incomplete_update": True,
+        "status": status,
+        "description": state.get("description"),
+        "current_action_name": state.get("current_action_name"),
+        "completed_actions": len(state.get("completed_actions", [])),
+        "last_updated": state.get("last_updated"),
+    }
+
+
 @router.post("/apply-update", response_model=UpdateResponse)
 async def apply_update(filename: str, background_tasks: BackgroundTasks):
     """Start update process in background."""
