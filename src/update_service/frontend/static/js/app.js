@@ -321,18 +321,25 @@ async function rollbackUpdate(jobId) {
     }
 }
 
-// Check for incomplete update after restart
+// Check for active/interrupted update on page load
 async function checkRecoveryStatus() {
     try {
-        const response = await fetch('/api/recovery-status');
+        const response = await fetch('/api/active-job');
         const data = await response.json();
 
-        if (!data.has_incomplete_update) return;
+        if (!data.has_active_job) return;
 
-        // Show recovery info in update section
         const section = document.getElementById('update-section');
         section.style.display = 'block';
 
+        // Case 1: Job still in memory (page refresh during update)
+        if (data.job_id && data.source !== 'state_file') {
+            currentJobId = data.job_id;
+            streamUpdateProgress(currentJobId);
+            return;
+        }
+
+        // Case 2: State file recovery (after device restart)
         const statusBadge = document.getElementById('status-badge');
         const desc = document.getElementById('update-description');
         const action = document.getElementById('current-action');
@@ -363,7 +370,6 @@ async function checkRecoveryStatus() {
         logEntry.textContent = info;
         logs.appendChild(logEntry);
 
-        // Set progress bar
         if (data.completed_actions > 0) {
             document.getElementById('progress-fill').style.width = '50%';
             document.getElementById('progress-label').textContent =
@@ -371,7 +377,6 @@ async function checkRecoveryStatus() {
             document.getElementById('progress-percent').textContent = '—';
         }
     } catch (error) {
-        // Silent fail - recovery check is optional
         console.debug('Recovery check:', error);
     }
 }

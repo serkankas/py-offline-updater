@@ -232,27 +232,39 @@ async def chunked_upload_finalize(upload_id: str):
     )
 
 
-@router.get("/recovery-status")
-async def get_recovery_status():
-    """Check if there's an incomplete update from a previous session (e.g. after restart)."""
+@router.get("/active-job")
+async def get_active_job():
+    """Return the currently running or most recent job so frontend can reconnect after page refresh."""
+    # Check for running job first
+    for job in jobs.values():
+        if job.status == JobStatus.RUNNING:
+            return {"has_active_job": True, "job_id": job.job_id, "source": "running"}
+
+    # Check for recently completed/failed job (still in memory)
+    latest = None
+    for job in jobs.values():
+        if latest is None or (job.created_at and job.created_at > latest.created_at):
+            latest = job
+    if latest:
+        return {"has_active_job": True, "job_id": latest.job_id, "source": "recent"}
+
+    # No in-memory jobs — check state.json for interrupted update (after restart)
     state_manager = StateManager(config.STATE_FILE)
     state = state_manager.load()
 
-    if not state:
-        return {"has_incomplete_update": False}
+    if state and state.get("status") in ("in_progress", "failed"):
+        return {
+            "has_active_job": True,
+            "job_id": None,
+            "source": "state_file",
+            "status": state.get("status"),
+            "description": state.get("description"),
+            "current_action_name": state.get("current_action_name"),
+            "completed_actions": len(state.get("completed_actions", [])),
+            "last_updated": state.get("last_updated"),
+        }
 
-    status = state.get("status")
-    if status not in ("in_progress", "failed"):
-        return {"has_incomplete_update": False}
-
-    return {
-        "has_incomplete_update": True,
-        "status": status,
-        "description": state.get("description"),
-        "current_action_name": state.get("current_action_name"),
-        "completed_actions": len(state.get("completed_actions", [])),
-        "last_updated": state.get("last_updated"),
-    }
+    return {"has_active_job": False}
 
 
 @router.post("/apply-update", response_model=UpdateResponse)
