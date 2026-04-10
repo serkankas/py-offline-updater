@@ -1,3 +1,10 @@
+# [1.4.0](https://github.com/serkankas/py-offline-updater/compare/v1.3.0...v1.4.0) (2026-04-10)
+
+
+### Features
+
+* **ui:** show recovery status when update was interrupted by restart ([1588520](https://github.com/serkankas/py-offline-updater/commit/15885204e29564b18cd34e5de5c8c89d04784217))
+
 # [1.3.0](https://github.com/serkankas/py-offline-updater/compare/v1.2.0...v1.3.0) (2026-04-10)
 
 
