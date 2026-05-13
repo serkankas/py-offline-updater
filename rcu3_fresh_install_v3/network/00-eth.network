@@ -1,0 +1,8 @@
+[Match]
+Name=eth0
+
+[Network]
+Address=10.2.1.20/24
+
+[Link]
+RequiredForOnline=no

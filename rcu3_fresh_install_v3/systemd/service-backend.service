@@ -1,0 +1,24 @@
+[Unit]
+Description=Service Backend Daemon
+After=network.target docker.service
+Wants=network.target docker.service
+
+[Service]
+Type=simple
+User=root
+Group=root
+WorkingDirectory=/app/app/service_backend/backend
+
+ExecStart=/usr/bin/python3 /app/app/service_backend/backend/main.py
+
+# Restart politikası
+Restart=on-failure
+RestartSec=5s
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=service-backend
+
+[Install]
+WantedBy=multi-user.target
