@@ -119,7 +119,6 @@ def detect_updater_location() -> Path:
     """
     for path in UPDATER_PATHS:
         if (path / "update_service").exists():
-            logger.info(f"Detected updater location: {path}")
             return path
 
     raise PreCheckError(
@@ -144,21 +143,18 @@ def run_prechecks(
     Raises:
         PreCheckError: If any critical check fails
     """
-    logger.info("Running pre-checks...")
 
     results = {}
 
     # Disk space
     passed, msg = check_disk_space(required_disk_mb)
     results['disk_space'] = {'passed': passed, 'message': msg}
-    logger.info(f"Disk space check: {msg}")
     if not passed:
         raise PreCheckError(msg)
 
     # Memory
     passed, msg = check_memory(required_memory_mb)
     results['memory'] = {'passed': passed, 'message': msg}
-    logger.info(f"Memory check: {msg}")
     if not passed:
         raise PreCheckError(msg)
 
@@ -170,7 +166,6 @@ def run_prechecks(
         results['updater_location'] = {'passed': False, 'error': str(e)}
         # Not critical, continue
 
-    logger.info("Pre-checks completed")
     return results
 
 
@@ -200,15 +195,12 @@ def backup_directory(
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     backup_dir = backup_base_dir / f"{backup_name}_{timestamp}"
 
-    logger.info(f"Backing up {source_dir} to {backup_dir}")
 
     backup_dir.parent.mkdir(parents=True, exist_ok=True)
 
     if source_dir.exists():
         shutil.copytree(source_dir, backup_dir)
-        logger.info(f"Backup created: {backup_dir}")
     else:
-        logger.warning(f"Source directory not found, creating empty backup marker: {source_dir}")
         backup_dir.mkdir(parents=True)
         (backup_dir / ".empty_backup").touch()
 
@@ -239,7 +231,6 @@ def sync_directory(
     if not source_dir.exists():
         raise UpdateError(f"Source directory not found: {source_dir}")
 
-    logger.info(f"Syncing {source_dir} -> {dest_dir} (mode={mode})")
 
     if mode == "mirror":
         # Remove destination and copy everything
@@ -277,7 +268,6 @@ def sync_directory(
     else:
         raise UpdateError(f"Unknown sync mode: {mode}")
 
-    logger.info(f"Directory sync completed: {dest_dir}")
     return True
 
 
@@ -335,7 +325,6 @@ def wait_for_http_healthy(
     Returns:
         True if endpoint became healthy
     """
-    logger.info(f"Waiting for {url} to become healthy (timeout: {timeout}s)")
 
     start_time = time.time()
 
@@ -343,13 +332,11 @@ def wait_for_http_healthy(
         healthy, msg = http_health_check(url, expected_status=expected_status)
 
         if healthy:
-            logger.info(f"Health check passed: {url}")
             return True
 
         logger.debug(f"Health check pending: {msg}")
         time.sleep(poll_interval)
 
-    logger.warning(f"Health check timeout: {url}")
     return False
 
 
@@ -360,16 +347,13 @@ def frontend_health_check() -> Tuple[bool, str]:
     Returns:
         Tuple of (healthy, message)
     """
-    logger.info("Running frontend health check")
 
     # Check frontend nginx
     healthy, msg = http_health_check("http://localhost:80/", timeout=5)
 
     if healthy:
-        logger.info("Frontend health check passed")
         return True, "Frontend is accessible"
     else:
-        logger.warning(f"Frontend health check failed: {msg}")
         return False, f"Frontend not accessible: {msg}"
 
 
@@ -411,9 +395,6 @@ def docker_update(
     Raises:
         UpdateError: If update fails
     """
-    logger.info("=" * 60)
-    logger.info("Starting Docker Update")
-    logger.info("=" * 60)
 
     # Validate inputs
     if not docker_images_path.exists():
@@ -425,50 +406,39 @@ def docker_update(
     if not tar_files:
         raise UpdateError(f"No tar files found in {docker_images_path}")
 
-    logger.info(f"Docker images path: {docker_images_path}")
-    logger.info(f"Compose file: {compose_file}")
-    logger.info(f"Found {len(tar_files)} image tar files")
 
     # Step 1: Backup current images (optional)
     if backup_images and DEFAULT_COMPOSE_FILE.exists():
-        logger.info("Step 1: Backing up current Docker files")
         backup_directory(DOCKER_FILES_DIR, "docker_backup")
     else:
-        logger.info("Step 1: Skipping backup")
+        pass  # logger.info/warning stripped
 
     # Step 2: docker-compose down
-    logger.info("Step 2: Stopping Docker services")
     if DEFAULT_COMPOSE_FILE.exists():
         compose_down(DEFAULT_COMPOSE_FILE, timeout=60)
     else:
-        logger.warning("No existing compose file, skipping down")
+        pass  # logger.info/warning stripped
 
     # Step 3: Copy docker files to destination
-    logger.info("Step 3: Copying Docker files")
     DOCKER_FILES_DIR.mkdir(parents=True, exist_ok=True)
 
     # Copy tar files
     for tar_file in tar_files:
         dest_file = DOCKER_FILES_DIR / tar_file.name
-        logger.info(f"  Copying: {tar_file.name}")
         shutil.copy2(tar_file, dest_file)
 
     # Copy compose file
     dest_compose = DOCKER_FILES_DIR / "docker-compose.yml"
-    logger.info(f"  Copying: docker-compose.yml")
     shutil.copy2(compose_file, dest_compose)
 
     # Step 4: docker load
-    logger.info("Step 4: Loading Docker images")
     for tar_file in DOCKER_FILES_DIR.glob("*.tar"):
         docker_load(tar_file, timeout=600)
 
     # Step 5: docker-compose up
-    logger.info("Step 5: Starting Docker services")
     compose_up(dest_compose, detach=True)
 
     # Step 6: Health checks
-    logger.info("Step 6: Waiting for containers to be healthy")
     healthy, statuses = wait_for_containers_healthy(
         dest_compose,
         timeout=health_check_timeout,
@@ -476,20 +446,16 @@ def docker_update(
     )
 
     if not healthy:
-        logger.warning(f"Some containers not healthy: {statuses}")
+        pass  # logger.info/warning stripped
         # Don't fail, continue
 
     # Step 7: Restart chromium-kiosk
     if restart_kiosk:
-        logger.info("Step 7: Restarting chromium-kiosk")
         try:
             restart_service(CHROMIUM_KIOSK, wait_healthy=False)
         except Exception as e:
-            logger.warning(f"Failed to restart chromium-kiosk: {e}")
+            pass  # logger.info/warning stripped
 
-    logger.info("=" * 60)
-    logger.info("Docker Update Completed Successfully")
-    logger.info("=" * 60)
 
     return True
 
@@ -530,9 +496,6 @@ def service_backend_update(
     Raises:
         UpdateError: If update fails
     """
-    logger.info("=" * 60)
-    logger.info("Starting Service Backend Update")
-    logger.info("=" * 60)
 
     # CRITICAL: Verify watchdog keeper is running
     if not watchdog_keeper.is_running:
@@ -545,23 +508,17 @@ def service_backend_update(
     if not backend_source_path.exists():
         raise UpdateError(f"Backend source path not found: {backend_source_path}")
 
-    logger.info(f"Source: {backend_source_path}")
-    logger.info(f"Destination: {SERVICE_BACKEND_DIR}")
 
     # Step 1: Backup
     if backup:
-        logger.info("Step 1: Backing up current Service Backend")
         backup_directory(SERVICE_BACKEND_DIR, "service_backend_backup")
     else:
-        logger.info("Step 1: Skipping backup")
+        pass  # logger.info/warning stripped
 
     # Step 2: Stop service
-    logger.info("Step 2: Stopping service-backend.service")
-    logger.info("  (WatchdogKeeper is keeping watchdog alive)")
     stop_service(SERVICE_BACKEND, timeout=30)
 
     # Step 3: Sync files
-    logger.info("Step 3: Syncing new files")
     sync_directory(
         backend_source_path,
         SERVICE_BACKEND_DIR,
@@ -572,15 +529,12 @@ def service_backend_update(
     # Preserve .env if exists
     env_backup = SERVICE_BACKEND_DIR.parent / "backups" / ".env.backup"
     if env_backup.exists():
-        logger.info("  Preserving .env file")
         shutil.copy2(env_backup, SERVICE_BACKEND_DIR / ".env")
 
     # Step 4: Start service
-    logger.info("Step 4: Starting service-backend.service")
     start_service(SERVICE_BACKEND, wait_healthy=True, health_timeout=30)
 
     # Step 5: Health checks
-    logger.info("Step 5: Running health checks")
 
     # Check systemd status
     if not is_service_active(SERVICE_BACKEND):
@@ -589,21 +543,17 @@ def service_backend_update(
     # Check for errors in logs
     has_errors, error_lines = check_service_logs_for_errors(SERVICE_BACKEND, lines=20)
     if has_errors:
-        logger.warning(f"Errors found in Service Backend logs:")
         for line in error_lines[:5]:
-            logger.warning(f"  {line}")
+            pass  # logger.info/warning stripped
 
     # HTTP health check
     if not wait_for_http_healthy(
         "http://localhost:8001/api/health",
         timeout=health_check_timeout
     ):
-        logger.warning("Service Backend HTTP health check failed")
+        pass  # logger.info/warning stripped
         # Don't fail, service might still be working
 
-    logger.info("=" * 60)
-    logger.info("Service Backend Update Completed Successfully")
-    logger.info("=" * 60)
 
     return True
 
@@ -640,28 +590,21 @@ def updater_self_update(
     Raises:
         UpdateError: If update fails
     """
-    logger.info("=" * 60)
-    logger.info("Starting py-offline-updater Self-Update")
-    logger.info("=" * 60)
 
     # Validate input
     if not updater_source_path.exists():
         raise UpdateError(f"Updater source path not found: {updater_source_path}")
 
     # Step 1: Detect location
-    logger.info("Step 1: Detecting updater location")
     updater_dir = detect_updater_location()
-    logger.info(f"  Found at: {updater_dir}")
 
     # Step 2: Backup
     if backup:
-        logger.info("Step 2: Backing up current updater")
         backup_directory(updater_dir, "updater_backup")
     else:
-        logger.info("Step 2: Skipping backup")
+        pass  # logger.info/warning stripped
 
     # Step 3: Sync files
-    logger.info("Step 3: Syncing new files")
     sync_directory(
         updater_source_path,
         updater_dir,
@@ -670,23 +613,17 @@ def updater_self_update(
     )
 
     # Step 4: Restart service
-    logger.info("Step 4: Restarting update-service.service")
-    logger.warning("  NOTE: Current process may be terminated!")
 
     restart_service(UPDATE_SERVICE, wait_healthy=False)
 
     # If we get here, service restarted but we're still alive (running in different process)
-    logger.info("Step 5: Waiting for service to be healthy")
 
     if not wait_for_http_healthy(
         "http://localhost:8123/api/health",
         timeout=health_check_timeout
     ):
-        logger.warning("Updater HTTP health check failed")
+        pass  # logger.info/warning stripped
 
-    logger.info("=" * 60)
-    logger.info("py-offline-updater Self-Update Completed")
-    logger.info("=" * 60)
 
     return True
 

@@ -81,8 +81,6 @@ class WatchdogKeeper:
 
             except FileNotFoundError as e:
                 self._last_error = f"Device not found: {e}"
-                logger.warning(f"Watchdog device not found: {self._watchdog_device}")
-                logger.warning("This is normal on development machines without hardware watchdog")
 
             except Exception as e:
                 self._last_error = str(e)
@@ -115,10 +113,8 @@ class WatchdogKeeper:
         - Yeni daemon thread başlatır
         """
         if self._running:
-            logger.warning("WatchdogKeeper already running")
             return
 
-        logger.info(f"Starting WatchdogKeeper (interval: {self._kick_interval}s, device: {self._watchdog_device})")
 
         self._running = True
         self._kick_count = 0
@@ -131,7 +127,6 @@ class WatchdogKeeper:
         )
         self._thread.start()
 
-        logger.info("WatchdogKeeper started")
 
     def stop(self):
         """
@@ -142,10 +137,8 @@ class WatchdogKeeper:
         - Thread'in bitmesini bekler (timeout ile)
         """
         if not self._running:
-            logger.warning("WatchdogKeeper not running")
             return
 
-        logger.info(f"Stopping WatchdogKeeper (total kicks: {self._kick_count})")
 
         self._running = False
 
@@ -155,13 +148,12 @@ class WatchdogKeeper:
             self._thread.join(timeout=join_timeout)
 
             if self._thread.is_alive():
-                logger.warning(f"WatchdogKeeper thread did not stop within {join_timeout}s")
+                pass  # logger.info/warning stripped
             else:
                 logger.debug("WatchdogKeeper thread joined successfully")
 
             self._thread = None
 
-        logger.info("WatchdogKeeper stopped")
 
     @property
     def is_running(self) -> bool:

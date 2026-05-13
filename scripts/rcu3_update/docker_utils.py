@@ -84,7 +84,6 @@ def _detect_docker_compose_command() -> str:
         )
         if result.returncode == 0:
             version_info = result.stdout.strip()
-            logger.info(f"Detected Docker Compose V2: {version_info}")
             _DOCKER_COMPOSE_CMD = 'compose'
             return 'compose'
     except (subprocess.TimeoutExpired, FileNotFoundError, Exception) as e:
@@ -100,7 +99,6 @@ def _detect_docker_compose_command() -> str:
         )
         if result.returncode == 0:
             version_info = result.stdout.strip()
-            logger.info(f"Detected Docker Compose V1: {version_info}")
             _DOCKER_COMPOSE_CMD = 'docker-compose'
             return 'docker-compose'
     except (subprocess.TimeoutExpired, FileNotFoundError, Exception) as e:
@@ -186,7 +184,6 @@ def compose_down(
     if not compose_file.exists():
         raise DockerError(f"Compose file not found: {compose_file}")
 
-    logger.info(f"Stopping Docker Compose services: {compose_file}")
 
     args = ['compose', '-f', str(compose_file), 'down', '--timeout', str(timeout)]
 
@@ -201,7 +198,6 @@ def compose_down(
         logger.error(f"Docker compose down failed: {stderr}")
         raise DockerError(f"Failed to stop services: {stderr}")
 
-    logger.info("Docker Compose services stopped")
     return True
 
 
@@ -233,7 +229,6 @@ def compose_up(
     if not compose_file.exists():
         raise DockerError(f"Compose file not found: {compose_file}")
 
-    logger.info(f"Starting Docker Compose services: {compose_file}")
 
     args = ['compose', '-f', str(compose_file), 'up']
 
@@ -250,7 +245,6 @@ def compose_up(
         logger.error(f"Docker compose up failed: {stderr}")
         raise DockerError(f"Failed to start services: {stderr}")
 
-    logger.info("Docker Compose services started")
     return True
 
 
@@ -272,7 +266,6 @@ def docker_load(image_tar: Path, timeout: int = 600) -> str:
         raise DockerError(f"Image tar file not found: {image_tar}")
 
     file_size_mb = image_tar.stat().st_size / (1024 * 1024)
-    logger.info(f"Loading Docker image: {image_tar} ({file_size_mb:.1f} MB)")
 
     rc, stdout, stderr = run_docker(['load', '-i', str(image_tar)], timeout=timeout)
 
@@ -291,7 +284,6 @@ def docker_load(image_tar: Path, timeout: int = 600) -> str:
             loaded_image = line.split('Loaded image ID:')[1].strip()
             break
 
-    logger.info(f"Docker image loaded: {loaded_image}")
     return loaded_image
 
 
@@ -310,7 +302,6 @@ def docker_save(image_name: str, output_path: Path, timeout: int = 600) -> bool:
     Raises:
         DockerError: If save fails
     """
-    logger.info(f"Saving Docker image: {image_name} -> {output_path}")
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -321,7 +312,6 @@ def docker_save(image_name: str, output_path: Path, timeout: int = 600) -> bool:
         raise DockerError(f"Failed to save image: {stderr}")
 
     file_size_mb = output_path.stat().st_size / (1024 * 1024)
-    logger.info(f"Docker image saved: {output_path} ({file_size_mb:.1f} MB)")
     return True
 
 
@@ -341,7 +331,6 @@ def docker_prune(
     Returns:
         Dict with prune statistics
     """
-    logger.info("Pruning Docker resources")
 
     results = {}
 
@@ -369,7 +358,6 @@ def docker_prune(
         rc, stdout, stderr = run_docker(args)
         results['volumes'] = stdout
 
-    logger.info("Docker prune completed")
     return results
 
 
@@ -430,7 +418,6 @@ def get_compose_services(compose_file: Path = DEFAULT_COMPOSE_FILE) -> List[str]
     )
 
     if rc != 0:
-        logger.warning(f"Failed to get compose services: {stderr}")
         return []
 
     return [s.strip() for s in stdout.strip().split('\n') if s.strip()]
@@ -463,10 +450,8 @@ def wait_for_containers_healthy(
     services = [s for s in services if s not in ignore_services]
 
     if not services:
-        logger.warning("No services to check")
         return True, {}
 
-    logger.info(f"Waiting for containers to be healthy: {services}")
 
     start_time = time.time()
 
@@ -507,12 +492,10 @@ def wait_for_containers_healthy(
         logger.debug(f"Container statuses: {statuses}")
 
         if all_healthy:
-            logger.info(f"All containers healthy: {statuses}")
             return True, statuses
 
         time.sleep(poll_interval)
 
-    logger.warning(f"Timeout waiting for containers. Final statuses: {statuses}")
     return False, statuses
 
 
@@ -545,11 +528,9 @@ def copy_docker_files(
     for pattern in file_patterns:
         for src_file in source_dir.glob(pattern):
             dest_file = dest_dir / src_file.name
-            logger.info(f"Copying: {src_file.name} -> {dest_dir}")
             shutil.copy2(src_file, dest_file)
             copied_files.append(dest_file)
 
-    logger.info(f"Copied {len(copied_files)} Docker files to {dest_dir}")
     return copied_files
 
 
@@ -570,10 +551,8 @@ def load_all_images(
     tar_files = list(source_dir.glob('*.tar'))
 
     if not tar_files:
-        logger.warning(f"No tar files found in {source_dir}")
         return []
 
-    logger.info(f"Loading {len(tar_files)} Docker images from {source_dir}")
 
     loaded_images = []
     for tar_file in tar_files:

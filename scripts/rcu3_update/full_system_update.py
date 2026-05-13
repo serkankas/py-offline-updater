@@ -84,7 +84,6 @@ def _patch_chromium_service():
     - Remove ExecStartPre lines (splash handles waiting)
     """
     if not CHROMIUM_SERVICE_PATH.exists():
-        logger.warning(f"chromium-kiosk.service not found at {CHROMIUM_SERVICE_PATH}, skipping patch")
         return
 
     content = CHROMIUM_SERVICE_PATH.read_text()
@@ -116,9 +115,8 @@ def _patch_chromium_service():
     if content != original:
         CHROMIUM_SERVICE_PATH.write_text(content)
         reload_daemon()
-        logger.info("  Patched chromium-kiosk.service (splash URL + removed Docker waits)")
     else:
-        logger.info("  chromium-kiosk.service already up to date")
+        pass  # logger.info/warning stripped
 
 
 def http_health_check(url: str, timeout: int = 10, max_wait: int = 60, retry_interval: int = 3) -> bool:
@@ -147,7 +145,6 @@ def http_health_check(url: str, timeout: int = 10, max_wait: int = 60, retry_int
             response = requests.get(url, timeout=timeout)
             if response.status_code == 200:
                 elapsed = time.time() - start_time
-                logger.info(f"Health check passed after {elapsed:.1f}s ({attempt} attempts)")
                 return True
             else:
                 logger.debug(f"Health check returned status {response.status_code}")
@@ -186,8 +183,6 @@ def _schedule_service_restart(service_name: str, delay_seconds: int = 10) -> boo
         result = subprocess.run(cmd, capture_output=True, text=True)
 
         if result.returncode == 0:
-            logger.info(f"Scheduled restart of {service_name} in {delay_seconds}s")
-            logger.info(f"  {result.stderr.strip()}")
             return True
         else:
             logger.error(f"Failed to schedule restart: {result.stderr}")
@@ -215,7 +210,6 @@ def _schedule_safe_reboot(delay_seconds: int = 10) -> bool:
 
     if not safe_reboot_script.exists():
         # Fallback: direct reboot
-        logger.warning(f"safe_reboot.py not found at {safe_reboot_script}, using direct reboot")
         cmd = [
             'systemd-run', '--on-active={}s'.format(delay_seconds),
             'systemctl', 'reboot'
@@ -230,8 +224,6 @@ def _schedule_safe_reboot(delay_seconds: int = 10) -> bool:
         result = subprocess.run(cmd, capture_output=True, text=True)
 
         if result.returncode == 0:
-            logger.info(f"Scheduled safe reboot in {delay_seconds}s")
-            logger.info(f"  {result.stderr.strip()}")
             return True
         else:
             logger.error(f"Failed to schedule reboot: {result.stderr}")
@@ -277,7 +269,6 @@ def set_environment_versions(
     versions = {k: v for k, v in versions.items() if v is not None}
 
     if not versions:
-        logger.info("No version values provided, skipping /etc/environment update")
         return True
 
     try:
@@ -300,9 +291,8 @@ def set_environment_versions(
         ENV_FILE.write_text("\n".join(kept_lines) + "\n")
 
         for key, value in versions.items():
-            logger.info(f"  {key}={value}")
+            pass  # logger.info/warning stripped
 
-        logger.info(f"Updated {ENV_FILE} with version information")
         return True
 
     except PermissionError:
@@ -317,7 +307,6 @@ def ensure_backup_dirs():
     """Create backup directories if they don't exist."""
     for backup_dir in [BACKUP_DOCKER, BACKUP_SERVICE_BACKEND, BACKUP_UPDATER]:
         backup_dir.mkdir(parents=True, exist_ok=True)
-        logger.info(f"Backup directory ready: {backup_dir}")
 
 
 # =============================================================================
@@ -335,15 +324,11 @@ def relocate_updater_if_needed() -> bool:
         Exception if relocation fails
     """
     if not UPDATER_OLD_DIR.exists():
-        logger.info("No relocation needed - legacy path doesn't exist")
         return False
 
     if UPDATER_DIR.exists():
-        logger.warning(f"Both {UPDATER_OLD_DIR} and {UPDATER_DIR} exist!")
-        logger.warning("Manual intervention needed - skipping relocation")
         return False
 
-    logger.info(f"Relocating updater: {UPDATER_OLD_DIR} → {UPDATER_DIR}")
 
     try:
         # Create parent directory
@@ -351,10 +336,8 @@ def relocate_updater_if_needed() -> bool:
 
         # Move entire directory
         shutil.move(str(UPDATER_OLD_DIR), str(UPDATER_DIR))
-        logger.info("Relocation completed successfully")
 
         # Update systemd service file (if needed)
-        logger.info("Checking systemd service configuration...")
         service_file = Path("/etc/systemd/system/update-service.service")
 
         if service_file.exists():
@@ -362,11 +345,7 @@ def relocate_updater_if_needed() -> bool:
                 content = f.read()
 
             if '/opt/updater' in content or '/opt/update' in content:
-                logger.warning("Systemd service file contains old path!")
-                logger.warning(f"Please update {service_file} manually:")
-                logger.warning(f"  WorkingDirectory={UPDATER_DIR}")
-                logger.warning(f"  ExecStart={UPDATER_DIR}/bootstrap.py")
-                logger.warning("Then run: systemctl daemon-reload && systemctl restart update-service")
+                pass  # logger.info/warning stripped
 
         return True
 
@@ -406,9 +385,6 @@ def update_docker(
     Returns:
         True if update succeeded, False otherwise
     """
-    logger.info("=" * 60)
-    logger.info("DOCKER UPDATE - START")
-    logger.info("=" * 60)
 
     timestamp = get_timestamp()
     backup_dir = BACKUP_DOCKER / timestamp
@@ -418,17 +394,13 @@ def update_docker(
 
     try:
         # Step 1: Stop containers
-        logger.info("Step 1/8: Stopping containers...")
         compose_down(cwd=DOCKER_FILES_DIR)
 
         # Step 2: Backup current compose file
-        logger.info("Step 2/8: Backing up current compose file...")
         if old_compose_file.exists():
             shutil.copy2(old_compose_file, backup_dir / "docker-compose.yml")
-            logger.info(f"  Backed up: docker-compose.yml")
 
         # Step 3: Save current images (backup)
-        logger.info("Step 3/8: Saving current Docker images...")
         # Get image names from old compose
         running_images = [
             "redis:7-alpine",
@@ -441,12 +413,10 @@ def update_docker(
             output_tar = backup_dir / f"{safe_name}.tar"
             try:
                 docker_save(image_name, output_tar)
-                logger.info(f"  Saved: {image_name} → {output_tar.name}")
             except Exception as e:
-                logger.warning(f"  Failed to save {image_name}: {e}")
+                pass  # logger.info/warning stripped
 
         # Step 4: Clean docker-files (except compose)
-        logger.info("Step 4/8: Cleaning docker-files directory...")
         for item in DOCKER_FILES_DIR.iterdir():
             if item.name != "docker-compose.yml" and item.name != "tmp":
                 if item.is_file():
@@ -457,11 +427,9 @@ def update_docker(
                     logger.debug(f"  Removed dir: {item.name}")
 
         # Step 5: Copy new images and compose
-        logger.info("Step 5/8: Copying new images and compose file...")
 
         # Copy compose file
         shutil.copy2(compose_file, DOCKER_FILES_DIR / "docker-compose.yml")
-        logger.info(f"  Copied: docker-compose.yml")
 
         # Copy all .tar files
         tar_files = list(source_dir.glob("*.tar"))
@@ -471,20 +439,15 @@ def update_docker(
         for tar_file in tar_files:
             dest = DOCKER_FILES_DIR / tar_file.name
             shutil.copy2(tar_file, dest)
-            logger.info(f"  Copied: {tar_file.name}")
 
         # Step 6: Load new images
-        logger.info("Step 6/8: Loading new Docker images...")
         for tar_file in DOCKER_FILES_DIR.glob("*.tar"):
             docker_load(tar_file)
-            logger.info(f"  Loaded: {tar_file.name}")
 
         # Step 7: Start containers with new compose
-        logger.info("Step 7/8: Starting containers with new compose...")
         compose_up(cwd=DOCKER_FILES_DIR)
 
         # Step 8: Health checks
-        logger.info("Step 8/8: Running health checks...")
 
         # Wait for containers to be healthy
         if not wait_for_containers_healthy(
@@ -495,64 +458,44 @@ def update_docker(
             raise UpdateError("Containers failed to become healthy")
 
         # HTTP health checks
-        logger.info("  Checking Frontend...")
         if not http_health_check(FRONTEND_URL, timeout=5, max_wait=30, retry_interval=3):
             raise UpdateError("Frontend health check failed")
-        logger.info("  ✓ Frontend OK")
 
         # Backend API health check skipped - VDR connection may not be available
-        logger.info("  Backend API health check skipped (VDR dependency)")
 
         # SUCCESS
-        logger.info("=" * 60)
-        logger.info("DOCKER UPDATE - SUCCESS")
-        logger.info("=" * 60)
 
         # Cleanup: Remove backup
-        logger.info("Cleaning up backup...")
         shutil.rmtree(backup_dir)
-        logger.info(f"  Removed: {backup_dir}")
 
         return True
 
     except Exception as e:
         logger.error(f"Docker update failed: {e}")
-        logger.info("=" * 60)
-        logger.info("DOCKER UPDATE - ROLLBACK")
-        logger.info("=" * 60)
 
         try:
             # Stop new containers
-            logger.info("Stopping new containers...")
             compose_down(cwd=DOCKER_FILES_DIR)
 
             # Restore old compose
-            logger.info("Restoring old compose file...")
             old_compose_backup = backup_dir / "docker-compose.yml"
             if old_compose_backup.exists():
                 shutil.copy2(old_compose_backup, DOCKER_FILES_DIR / "docker-compose.yml")
 
             # Load old images from backup
-            logger.info("Loading old images from backup...")
             for tar_file in backup_dir.glob("*.tar"):
                 docker_load(tar_file)
-                logger.info(f"  Loaded: {tar_file.name}")
 
             # Start old containers
-            logger.info("Starting old containers...")
             compose_up(cwd=DOCKER_FILES_DIR)
 
             # Cleanup: Remove new tar files that failed
-            logger.info("Cleaning up failed tar files...")
             for tar_file in DOCKER_FILES_DIR.glob("*.tar"):
                 try:
                     tar_file.unlink()
-                    logger.info(f"  Removed: {tar_file.name}")
                 except Exception as e:
-                    logger.warning(f"  Failed to remove {tar_file.name}: {e}")
+                    pass  # logger.info/warning stripped
 
-            logger.info("Rollback completed - system restored to previous state")
-            logger.info(f"Backup preserved at: {backup_dir}")
 
         except Exception as rollback_error:
             logger.error(f"Rollback failed: {rollback_error}")
@@ -591,61 +534,42 @@ def update_service_backend(
     Returns:
         True if update succeeded, False otherwise
     """
-    logger.info("=" * 60)
-    logger.info("SERVICE BACKEND UPDATE - START")
-    logger.info("=" * 60)
 
     timestamp = get_timestamp()
     backup_dir = BACKUP_SERVICE_BACKEND / timestamp
 
     try:
         # Step 1: Ensure service is stopped
-        logger.info("Step 1/5: Ensuring service is stopped...")
         if is_service_active(SERVICE_BACKEND):
             stop_service(SERVICE_BACKEND, timeout=30)
-        logger.info("  Service stopped")
 
         # Step 2: Backup current files
-        logger.info("Step 2/5: Backing up current files...")
         if SERVICE_BACKEND_DIR.exists():
             shutil.copytree(SERVICE_BACKEND_DIR, backup_dir)
-            logger.info(f"  Backed up to: {backup_dir}")
 
         # Step 3: Sync new files (only backend/ subdir, preserve .env and other root files)
         backend_dir = SERVICE_BACKEND_DIR / 'backend'
-        logger.info("Step 3/5: Syncing new files...")
-        logger.info(f"  Source: {source_dir}")
-        logger.info(f"  Target: {backend_dir}")
-        logger.info(f"  Source contents: {[f.name for f in source_dir.iterdir()]}")
 
         if backend_dir.exists():
-            logger.info(f"  Removing old: {backend_dir}")
             shutil.rmtree(backend_dir)
 
         shutil.copytree(source_dir, backend_dir)
-        logger.info(f"  Target contents: {[f.name for f in backend_dir.iterdir()]}")
-        logger.info(f"  Root contents: {[f.name for f in SERVICE_BACKEND_DIR.iterdir()]}")
-        logger.info(f"  Synced: {source_dir} → {backend_dir}")
 
         # Step 3b: Deploy .env file (replaces existing)
         if env_file and env_file.exists():
             dest_env = SERVICE_BACKEND_DIR / ".env"
             shutil.copy2(env_file, dest_env)
-            logger.info(f"  Deployed .env: {env_file} → {dest_env}")
         elif env_file:
-            logger.warning(f"  .env file not found: {env_file}")
+            pass  # logger.info/warning stripped
 
         # Step 4: Start service
-        logger.info("Step 4/5: Starting service...")
         start_service(SERVICE_BACKEND, timeout=30)
 
         # Wait for service to be active
         if not wait_for_service_active(SERVICE_BACKEND, timeout=60):
             raise UpdateError("Service failed to start")
-        logger.info("  Service started")
 
         # Step 5: Health check
-        logger.info("Step 5/5: Running health check...")
         # Health check with retry (max 60s, retry every 3s)
         if not http_health_check(SERVICE_BACKEND_URL, timeout=5, max_wait=60, retry_interval=3):
             # Log detailed debug info before failing
@@ -688,52 +612,37 @@ def update_service_backend(
                         ports = [line for line in result.stdout.split('\n') if '8001' in line or 'LISTEN' in line]
                         logger.error(f"Port status (netstat):\n" + '\n'.join(ports[:10]))
                     else:
-                        logger.warning("Neither ss nor netstat available for port check")
+                        pass  # logger.info/warning stripped
             except FileNotFoundError:
-                logger.warning("Port check tools (ss/netstat) not available")
+                pass  # logger.info/warning stripped
             except Exception as e:
                 logger.error(f"Failed to check ports: {e}")
 
             raise UpdateError("Service Backend health check failed")
-        logger.info("  ✓ Health check OK")
 
         # SUCCESS
-        logger.info("=" * 60)
-        logger.info("SERVICE BACKEND UPDATE - SUCCESS")
-        logger.info("=" * 60)
 
         # Cleanup: Remove backup
-        logger.info("Cleaning up backup...")
         shutil.rmtree(backup_dir)
-        logger.info(f"  Removed: {backup_dir}")
 
         return True
 
     except Exception as e:
         logger.error(f"Service Backend update failed: {e}")
-        logger.info("=" * 60)
-        logger.info("SERVICE BACKEND UPDATE - ROLLBACK")
-        logger.info("=" * 60)
 
         try:
             # Stop service
-            logger.info("Stopping service...")
             if is_service_active(SERVICE_BACKEND):
                 stop_service(SERVICE_BACKEND, timeout=30)
 
             # Restore from backup
-            logger.info("Restoring from backup...")
             if SERVICE_BACKEND_DIR.exists():
                 shutil.rmtree(SERVICE_BACKEND_DIR)
             shutil.copytree(backup_dir, SERVICE_BACKEND_DIR)
-            logger.info(f"  Restored from: {backup_dir}")
 
             # Start service
-            logger.info("Starting service...")
             start_service(SERVICE_BACKEND, timeout=30)
 
-            logger.info("Rollback completed - service restored")
-            logger.info(f"Backup preserved at: {backup_dir}")
 
         except Exception as rollback_error:
             logger.error(f"Rollback failed: {rollback_error}")
@@ -770,9 +679,6 @@ def update_updater(
     Returns:
         True if update succeeded, False otherwise
     """
-    logger.info("=" * 60)
-    logger.info("UPDATER UPDATE - START (self-update mode)")
-    logger.info("=" * 60)
 
     timestamp = get_timestamp()
     backup_dir = BACKUP_UPDATER / timestamp
@@ -782,28 +688,21 @@ def update_updater(
         # NOTE: We DON'T move /opt/updater because we're running FROM there!
         # Just create /app/app/update and copy new files there
         if not UPDATER_DIR.exists():
-            logger.info(f"Target directory doesn't exist, creating: {UPDATER_DIR}")
             UPDATER_DIR.mkdir(parents=True, exist_ok=True)
 
             # If old location exists, copy its config/state files (not code)
             if UPDATER_OLD_DIR.exists():
-                logger.info("Copying state files from old location...")
                 old_state = UPDATER_OLD_DIR / "state.json"
                 if old_state.exists():
                     shutil.copy2(old_state, UPDATER_DIR / "state.json")
-                    logger.info("  Copied: state.json")
 
         # Step 1: Backup current files
-        logger.info("Step 1/2: Backing up current files...")
         if UPDATER_DIR.exists() and any(UPDATER_DIR.iterdir()):
             shutil.copytree(UPDATER_DIR, backup_dir)
-            logger.info(f"  Backed up to: {backup_dir}")
         else:
-            logger.info("  No existing files to backup")
+            pass  # logger.info/warning stripped
 
         # Step 2: Sync new files in-place
-        logger.info("Step 2/2: Syncing new files in-place...")
-        logger.info("  NOTE: Service keeps running with old code in memory")
 
         # Sync files by overwriting (don't remove the entire directory -
         # the running service has open file handles)
@@ -817,10 +716,8 @@ def update_updater(
                 shutil.copy2(item, dest_item)
             logger.debug(f"  Synced: {item.name}")
 
-        logger.info(f"  Synced: {source_dir} → {UPDATER_DIR}")
 
         # Step 3: Update systemd service file paths
-        logger.info("Step 3/3: Updating systemd service configuration...")
         service_file = Path("/etc/systemd/system/py-updater.service")
 
         if service_file.exists():
@@ -841,51 +738,38 @@ def update_updater(
                         "Environment=\"PYTHONPATH=/opt/updater/update-engines/current\"",
                         f"Environment=\"PYTHONPATH={UPDATER_DIR}/update-engines/current\""
                     )
-                    logger.info("  Updated PYTHONPATH in service file")
 
                 # Write back if changed
                 if content != original_content:
                     service_file.write_text(content)
-                    logger.info(f"  Updated: {service_file}")
 
                     # Reload systemd daemon
                     result = subprocess.run(['systemctl', 'daemon-reload'],
                                           capture_output=True, text=True, timeout=10)
                     if result.returncode == 0:
-                        logger.info("  Systemd daemon reloaded")
+                        pass  # logger.info/warning stripped
                     else:
-                        logger.warning(f"  Failed to reload systemd: {result.stderr}")
+                        pass  # logger.info/warning stripped
                 else:
-                    logger.info("  Service file already up to date")
+                    pass  # logger.info/warning stripped
 
             except Exception as e:
-                logger.warning(f"  Failed to update service file: {e}")
-                logger.warning("  Manual update may be required after restart")
+                pass  # logger.info/warning stripped
         else:
-            logger.info("  Service file not found (may not be installed yet)")
+            pass  # logger.info/warning stripped
 
         # SUCCESS
-        logger.info("=" * 60)
-        logger.info("UPDATER UPDATE - SUCCESS")
-        logger.info("  Service restart will be scheduled after all updates complete")
-        logger.info("=" * 60)
 
         # Cleanup: Remove backup
-        logger.info("Cleaning up backup...")
         shutil.rmtree(backup_dir)
-        logger.info(f"  Removed: {backup_dir}")
 
         return True
 
     except Exception as e:
         logger.error(f"Updater update failed: {e}")
-        logger.info("=" * 60)
-        logger.info("UPDATER UPDATE - ROLLBACK")
-        logger.info("=" * 60)
 
         try:
             # Restore from backup (service is still running, just restore files)
-            logger.info("Restoring from backup...")
             if backup_dir.exists():
                 for item in backup_dir.iterdir():
                     dest_item = UPDATER_DIR / item.name
@@ -895,10 +779,7 @@ def update_updater(
                         shutil.copytree(item, dest_item)
                     else:
                         shutil.copy2(item, dest_item)
-                logger.info(f"  Restored from: {backup_dir}")
 
-            logger.info("Rollback completed - updater files restored")
-            logger.info(f"Backup preserved at: {backup_dir}")
 
         except Exception as rollback_error:
             logger.error(f"Rollback failed: {rollback_error}")
@@ -951,15 +832,11 @@ def run_full_system_update(
     Returns:
         True if all updates succeeded, False otherwise
     """
-    logger.info("=" * 60)
-    logger.info("RCU3 FULL SYSTEM UPDATE")
-    logger.info("=" * 60)
 
     watchdog_keeper = None
 
     try:
         # Step 0: Ensure backup directories exist
-        logger.info("Preparing backup directories...")
         ensure_backup_dirs()
 
         # NOTE: Relocation is SKIPPED during update because update runs from /opt/updater/tmp
@@ -967,16 +844,12 @@ def run_full_system_update(
 
         # Step 1: Start WatchdogKeeper
         if enable_watchdog:
-            logger.info("Starting WatchdogKeeper...")
             watchdog_keeper = get_watchdog_keeper()
             watchdog_keeper.start()
-            logger.info("  WatchdogKeeper started")
 
         # Step 2: Stop Service Backend (will be updated later)
-        logger.info("Stopping Service Backend...")
         if is_service_active(SERVICE_BACKEND):
             stop_service(SERVICE_BACKEND, timeout=30)
-            logger.info("  Service Backend stopped")
 
         # Step 3: Docker Update
         if not skip_docker:
@@ -988,13 +861,11 @@ def run_full_system_update(
             if not success:
                 raise UpdateError("Docker update failed")
         else:
-            logger.info("Skipping Docker update (--skip-docker)")
+            pass  # logger.info/warning stripped
 
         # Step 3b: Deploy splash screen & patch chromium service
         if splash_html_file and splash_html_file.exists():
-            logger.info("Deploying splash.html...")
             shutil.copy2(splash_html_file, SPLASH_HTML_DEST)
-            logger.info(f"  Deployed: {splash_html_file} → {SPLASH_HTML_DEST}")
 
             # Patch chromium-kiosk.service to use splash.html
             _patch_chromium_service()
@@ -1009,7 +880,7 @@ def run_full_system_update(
             if not success:
                 raise UpdateError("Service Backend update failed")
         else:
-            logger.info("Skipping Service Backend update (--skip-service-backend)")
+            pass  # logger.info/warning stripped
 
         # Step 5: Updater Update
         if not skip_updater:
@@ -1020,48 +891,37 @@ def run_full_system_update(
             if not success:
                 raise UpdateError("Updater update failed")
         else:
-            logger.info("Skipping Updater update (--skip-updater)")
+            pass  # logger.info/warning stripped
 
         # Schedule deferred restart of update service if updater was updated
         if not skip_updater:
-            logger.info("Scheduling deferred restart of update service...")
             _schedule_service_restart(UPDATE_SERVICE, delay_seconds=10)
 
         # Ensure docker.service is enabled (not just socket-activated)
-        logger.info("Ensuring docker.service is enabled at boot...")
         result = subprocess.run(
             ['systemctl', 'enable', 'docker.service'],
             capture_output=True, text=True, timeout=10
         )
         if result.returncode == 0:
-            logger.info("  ✓ docker.service enabled")
+            pass  # logger.info/warning stripped
         else:
-            logger.warning(f"  Failed to enable docker.service: {result.stderr}")
+            pass  # logger.info/warning stripped
 
         # Schedule safe reboot
-        logger.info("Scheduling safe reboot...")
         _schedule_safe_reboot(delay_seconds=10)
 
         # SUCCESS
-        logger.info("=" * 60)
-        logger.info("RCU3 FULL SYSTEM UPDATE - SUCCESS")
-        logger.info("=" * 60)
 
         return True
 
     except Exception as e:
         logger.error(f"Full system update failed: {e}")
-        logger.info("=" * 60)
-        logger.info("RCU3 FULL SYSTEM UPDATE - FAILED")
-        logger.info("=" * 60)
         return False
 
     finally:
         # Always stop WatchdogKeeper
         if watchdog_keeper and watchdog_keeper.is_running:
-            logger.info("Stopping WatchdogKeeper...")
             watchdog_keeper.stop()
-            logger.info("  WatchdogKeeper stopped")
 
 
 # =============================================================================

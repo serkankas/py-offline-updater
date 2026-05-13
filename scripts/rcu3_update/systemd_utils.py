@@ -155,7 +155,6 @@ def stop_service(
     Raises:
         SystemdError: If stop fails (and service exists)
     """
-    logger.info(f"Stopping service: {service_name}")
 
     try:
         rc, stdout, stderr = run_systemctl(['stop', service_name], timeout=timeout)
@@ -164,7 +163,6 @@ def stop_service(
             # Check if service exists
             if 'not found' in stderr.lower() or 'does not exist' in stderr.lower():
                 if ignore_not_found:
-                    logger.warning(f"Service not found (ignored): {service_name}")
                     return True
                 raise SystemdError(f"Service not found: {service_name}")
 
@@ -174,7 +172,6 @@ def stop_service(
         if not force_kill or 'not found' in str(e).lower():
             raise
 
-        logger.warning(f"Graceful stop timed out, force killing: {service_name}")
         try:
             run_systemctl(['kill', '--signal=SIGKILL', service_name], timeout=10)
         except SystemdError:
@@ -184,10 +181,8 @@ def stop_service(
         if not wait_for_service_stopped(service_name, timeout=10, poll_interval=1):
             raise SystemdError(f"Failed to force kill service {service_name}")
 
-        logger.info(f"Service force killed: {service_name}")
         return True
 
-    logger.info(f"Service stopped: {service_name}")
     return True
 
 
@@ -212,7 +207,6 @@ def start_service(
     Raises:
         SystemdError: If start fails
     """
-    logger.info(f"Starting service: {service_name}")
 
     rc, stdout, stderr = run_systemctl(['start', service_name], timeout=timeout)
 
@@ -223,7 +217,6 @@ def start_service(
         if not wait_for_service_active(service_name, timeout=health_timeout):
             raise SystemdError(f"Service {service_name} did not become active within {health_timeout}s")
 
-    logger.info(f"Service started: {service_name}")
     return True
 
 
@@ -248,7 +241,6 @@ def restart_service(
     Raises:
         SystemdError: If restart fails
     """
-    logger.info(f"Restarting service: {service_name}")
 
     rc, stdout, stderr = run_systemctl(['restart', service_name], timeout=timeout)
 
@@ -259,7 +251,6 @@ def restart_service(
         if not wait_for_service_active(service_name, timeout=health_timeout):
             raise SystemdError(f"Service {service_name} did not become active within {health_timeout}s")
 
-    logger.info(f"Service restarted: {service_name}")
     return True
 
 
@@ -269,14 +260,12 @@ def reload_daemon():
 
     Equivalent to: systemctl daemon-reload
     """
-    logger.info("Reloading systemd daemon")
 
     rc, stdout, stderr = run_systemctl(['daemon-reload'])
 
     if rc != 0:
         raise SystemdError(f"Failed to reload daemon: {stderr}")
 
-    logger.info("Systemd daemon reloaded")
 
 
 def wait_for_service_active(
@@ -307,7 +296,6 @@ def wait_for_service_active(
         time.sleep(poll_interval)
 
     # Timeout - log detailed status
-    logger.warning(f"Timeout waiting for service {service_name} to become active")
 
     # Get detailed status
     try:
@@ -362,7 +350,6 @@ def wait_for_service_stopped(
 
         time.sleep(poll_interval)
 
-    logger.warning(f"Timeout waiting for service {service_name} to stop")
     return False
 
 
