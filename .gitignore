@@ -39,12 +39,6 @@ Thumbs.db
 /uploads/
 state.json
 *.log
-rcu3_package/
-rcu3_fresh_install/
-
-# Large docker binaries in fresh-install packages (>50MB GitHub limit)
-rcu3_fresh_install*/docker-engine/*.tgz
-rcu3_fresh_install*/docker-engine/docker-compose
 
 # Semantic release
 CHANGELOG.md
