@@ -1,3 +1,10 @@
+# [1.5.0](https://github.com/serkankas/py-offline-updater/compare/v1.4.1...v1.5.0) (2026-06-03)
+
+
+### Features
+
+* **fresh-install:** add v3 package with SSH legacy RSA and RCU2B backup compat ([b13987c](https://github.com/serkankas/py-offline-updater/commit/b13987c6b27803cc6a9e5f021f67b7db4c65d23d))
+
 ## [1.4.1](https://github.com/serkankas/py-offline-updater/compare/v1.4.0...v1.4.1) (2026-04-10)
 
 
